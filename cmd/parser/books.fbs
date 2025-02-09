@@ -1,0 +1,18 @@
+namespace books;
+
+enum Color : byte { Red = 0, Green, Blue }
+
+table Book {
+    id: ulong;         
+    title: string;     
+    page_count: ulong;   
+    rate: double;
+    list_field: [string];
+    scalar_list_field: [ulong];
+}
+
+table BookList {
+    children: [Book];  
+}
+
+root_type BookList;

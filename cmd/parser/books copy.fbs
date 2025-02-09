@@ -1,0 +1,17 @@
+namespace books;
+
+
+table Creative {
+    id: ulong;         
+    name: string;     
+    campaign_id: ulong;   
+    rate: double;
+    list_field: [string];
+    scalar_list_field: [ulong];
+}
+
+table CreativeList {
+    children: [Creative];  
+}
+
+root_type BookList;
