@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/nidyaonur/flatmap/cmd/parser/books"
@@ -10,98 +11,83 @@ import (
 )
 
 func main() {
-	testSize := 10000000
+	testSize := 1000000
 	flatMap, err := constructFlatBookMap(testSize)
 	if err != nil {
 		fmt.Println("Failed to construct flat map:", err)
 		return
 	}
-	readFlatBookMap(flatMap, testSize)
+	wg := &sync.WaitGroup{}
+	writeFlatBookMap(flatMap, testSize, wg)
+	readFlatBookMap(flatMap, testSize, wg)
+	wg.Wait()
+	fmt.Println("Done")
+
 }
 
 func constructFlatBookMap(testSize int) (*flatmap.FlatNode[int, *books.Book, *books.BookList], error) {
-	builder := flatbuffers.NewBuilder(1024)
-	strOffsets := make(map[string]flatbuffers.UOffsetT)
-	keys := make([][]int, testSize)
-	vectorOffsets := make([]map[string]flatbuffers.UOffsetT, testSize)
+	// builder := flatbuffers.NewBuilder(1024)
+	// strOffsets := make(map[string]flatbuffers.UOffsetT)
+	// keys := make([][]int, testSize)
+	deltaItems := make([]flatmap.DeltaItem[int], testSize)
+	// vectorOffsets := make([]map[string]flatbuffers.UOffsetT, testSize)
 
-	for i := 0; i < testSize; i++ {
-		title := fmt.Sprintf("Book Title %d", i+1)
-		strOffsets[title] = builder.CreateString(title)
-		listField1 := fmt.Sprintf("Book SField %d", i+1) // id
-		strOffsets[listField1] = builder.CreateString(listField1)
-		listField2 := fmt.Sprintf("Book SField %d", i+2) // id + 1
-		strOffsets[listField2] = builder.CreateString(listField2)
-		vectorOffsets[i] = make(map[string]flatbuffers.UOffsetT)
-
-	}
-	for i := 0; i < testSize; i++ {
-		scalarList := make([]uint64, 2)
-		scalarList[0] = uint64(i + 1) // id
-		scalarList[1] = uint64(i + 2) // id + 1
-		vectorOffsets[i] = make(map[string]flatbuffers.UOffsetT)
-		vectorOffsets[i]["ScalarListField"] = books.BookStartScalarListFieldVector(builder, 2)
-		for j := 1; j >= 0; j-- {
-			builder.PrependUint64(scalarList[j])
-		}
-		vectorOffsets[i]["ScalarListField"] = builder.EndVector(2)
-		strList := make([]flatbuffers.UOffsetT, 2)
-		strList[0] = strOffsets[fmt.Sprintf("Book SField %d", i+1)]
-		strList[1] = strOffsets[fmt.Sprintf("Book SField %d", i+2)]
-		vectorOffsets[i]["ListField"] = books.BookStartListFieldVector(builder, 2)
-		for j := 1; j >= 0; j-- {
-			builder.PrependUOffsetT(strList[j])
-		}
-		vectorOffsets[i]["ListField"] = builder.EndVector(2)
-	}
-
-	offsetList := make([]flatbuffers.UOffsetT, testSize)
 	for i := 0; i < testSize; i++ {
 		id := uint64(i + 1)
+		builder := flatbuffers.NewBuilder(1024)
+		title := builder.CreateString(fmt.Sprintf("Book Title %d", id))
+		listField1 := builder.CreateString(fmt.Sprintf("Book SField %d", id))
+		listField2 := builder.CreateString(fmt.Sprintf("Book SField %d", id+1))
+		_ = books.BookStartListFieldVector(builder, 2)
+		builder.PrependUOffsetT(listField2)
+		builder.PrependUOffsetT(listField1)
+		listFieldVector := builder.EndVector(2)
+		_ = books.BookStartScalarListFieldVector(builder, 2)
+		builder.PrependUint64(uint64(id + 1))
+		builder.PrependUint64(uint64(id))
+		scalarListFieldVector := builder.EndVector(2)
 		books.BookStart(builder)
-		books.BookAddId(builder, id)
-		books.BookAddTitle(builder, strOffsets[fmt.Sprintf("Book Title %d", id)])
-		books.BookAddPageCount(builder, id)
-		books.BookAddScalarListField(builder, vectorOffsets[i]["ScalarListField"])
-		books.BookAddListField(builder, vectorOffsets[i]["ListField"])
+		books.BookAddId(builder, uint64(id))
+		books.BookAddTitle(builder, title)
+		books.BookAddPageCount(builder, uint64(id))
+		books.BookAddScalarListField(builder, scalarListFieldVector)
+		books.BookAddListField(builder, listFieldVector)
 		book := books.BookEnd(builder)
-		offsetList[i] = book
-		keys[i] = []int{int(id % 100), int(id)}
+		builder.Finish(book)
+		deltaItems[i] = flatmap.DeltaItem[int]{
+			Keys: []int{int(id % 100), int(id)},
+			Data: builder.FinishedBytes(),
+		}
+
 	}
-	books.BookListStartChildrenVector(builder, testSize)
-	for i := testSize - 1; i >= 0; i-- {
-		builder.PrependUOffsetT(offsetList[i])
-	}
-	booksVector := builder.EndVector(testSize)
-	books.BookListStart(builder)
-	books.BookListAddChildren(builder, booksVector)
-	bookList := books.BookListEnd(builder)
-	builder.Finish(bookList)
+	timeStart := time.Now()
 
 	flatConf := flatmap.FlatConfig[int, *books.Book, *books.BookList]{
-		InitialBuffer: builder.FinishedBytes(),
-		InitialKeys:   keys,
 		UpdateSeconds: 15,
-		Callbacks: flatmap.CallbackConfig[*books.Book, *books.BookList]{
-			NewV: func() *books.Book {
-				return &books.Book{}
-			},
-			NewVList: func() *books.BookList {
-				return &books.BookList{}
-			},
+		NewV: func() *books.Book {
+			return &books.Book{}
+		},
+		NewVList: func() *books.BookList {
+			return &books.BookList{}
+		},
+		GetKeysFromV: func(b *books.Book) []int {
+			id := int(b.Id())
+			return []int{id % 100, id}
 		},
 	}
-	flatMap := flatmap.NewFlatNode(flatConf, books.Tables)
+	flatMap := flatmap.NewFlatNode(flatConf, books.Tables, 0)
+	flatMap.FeedDeltaBulk(deltaItems)
+	fmt.Println("Construc time:", time.Since(timeStart))
 	return flatMap, nil
 }
 
-func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList], testSize int) {
-	wg := sync.WaitGroup{}
+func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList], testSize int, wg *sync.WaitGroup) {
+	// timeStart := time.Now()
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			book := &books.Book{}
-			for j := 1; j < testSize; j++ {
+			for j := 1; j <= testSize; j++ {
 				// check all fields
 				ok := flatMap.Get([]int{j % 100, j}, book)
 				if !ok {
@@ -144,5 +130,47 @@ func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList
 			wg.Done()
 		}()
 	}
-	wg.Wait()
+	// fmt.Println("Read time:", time.Since(timeStart))
+}
+
+func writeFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList], testSize int, wg *sync.WaitGroup) {
+	// timeStart := time.Now()
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			for j := 1; j <= testSize; j++ {
+				builder := flatbuffers.NewBuilder(1024)
+				title := builder.CreateString(fmt.Sprintf("Book Title %d", j))
+				listField1 := builder.CreateString(fmt.Sprintf("Book SField %d", j))
+				listField2 := builder.CreateString(fmt.Sprintf("Book SField %d", j+1))
+				_ = books.BookStartListFieldVector(builder, 2)
+				builder.PrependUOffsetT(listField2)
+				builder.PrependUOffsetT(listField1)
+				listFieldVector := builder.EndVector(2)
+				_ = books.BookStartScalarListFieldVector(builder, 2)
+				builder.PrependUint64(uint64(j + 1))
+				builder.PrependUint64(uint64(j))
+				scalarListFieldVector := builder.EndVector(2)
+				books.BookStart(builder)
+				books.BookAddId(builder, uint64(j))
+				books.BookAddTitle(builder, title)
+				books.BookAddPageCount(builder, uint64(j))
+				books.BookAddScalarListField(builder, scalarListFieldVector)
+				books.BookAddListField(builder, listFieldVector)
+				book := books.BookEnd(builder)
+				builder.Finish(book)
+				deltaItem := flatmap.DeltaItem[int]{
+					Keys: []int{j % 100, j},
+					Data: builder.FinishedBytes(),
+				}
+				err := flatMap.Set(deltaItem)
+				if err != nil {
+					fmt.Println("Failed to set book with key:", j)
+				}
+			}
+			wg.Done()
+		}()
+	}
+	// fmt.Println("Write time:", time.Since(timeStart))
 }

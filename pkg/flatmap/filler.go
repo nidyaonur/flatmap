@@ -8,14 +8,14 @@ func (sn *FlatNode[K, V, VList]) FillStrOffsets(v V, strOffsets map[string]flatb
 	for _, fc := range fieldConfigs {
 		switch fc.Type {
 		case TypeEnumString:
-			val := string(sn.Callbacks.StringGetters[fc.Name](v))
+			val := string(sn.conf.StringGetters[fc.Name](v))
 			if _, ok := strOffsets[val]; !ok {
 				strOffsets[val] = sn.Builder.CreateString(val)
 			}
 		case TypeEnumStringList:
-			listLength := sn.Callbacks.LengthGetters[fc.Name](v)
+			listLength := sn.conf.LengthGetters[fc.Name](v)
 			for j := 0; j < listLength; j++ {
-				val := string(sn.Callbacks.StringListGetters[fc.Name](v, j))
+				val := string(sn.conf.StringListGetters[fc.Name](v, j))
 				if _, ok := strOffsets[val]; !ok {
 					strOffsets[val] = sn.Builder.CreateString(val)
 				}
@@ -30,8 +30,8 @@ func (sn *FlatNode[K, V, VList]) FillVectorOffsetsMap(vList []V, strOffsets map[
 	for i := 0; i < len(vList); i++ {
 		vObj := vList[i]
 		vectorOffsetsMap := make(map[string]flatbuffers.UOffsetT)
-		for _, fc := range sn.TableConfigs[sn.VName] {
-			lengthGetter, ok := sn.Callbacks.LengthGetters[fc.Name]
+		for _, fc := range sn.conf.tableConfigs[sn.conf.vName] {
+			lengthGetter, ok := sn.conf.LengthGetters[fc.Name]
 			if !ok {
 				continue
 			}
@@ -42,62 +42,62 @@ func (sn *FlatNode[K, V, VList]) FillVectorOffsetsMap(vList []V, strOffsets map[
 				case TypeEnumStringList:
 					_ = StartVector(sn.Builder, listLength, 4) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						sn.Builder.PrependUOffsetT(strOffsets[string(sn.Callbacks.StringListGetters[fc.Name](vObj, j))])
+						sn.Builder.PrependUOffsetT(strOffsets[string(sn.conf.StringListGetters[fc.Name](vObj, j))])
 					}
 				case TypeEnumUint64List:
 					_ = StartVector(sn.Builder, listLength, 8) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						sn.Builder.PrependUint64(sn.Callbacks.Uint64ListGetters[fc.Name](vObj, j))
+						sn.Builder.PrependUint64(sn.conf.Uint64ListGetters[fc.Name](vObj, j))
 					}
 				case TypeEnumInt64List:
 					_ = StartVector(sn.Builder, listLength, 8) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						sn.Builder.PrependInt64(sn.Callbacks.Int64ListGetters[fc.Name](vObj, j))
+						sn.Builder.PrependInt64(sn.conf.Int64ListGetters[fc.Name](vObj, j))
 					}
 				case TypeEnumUint32List:
 					_ = StartVector(sn.Builder, listLength, 4) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						sn.Builder.PrependUint32(sn.Callbacks.Uint32ListGetters[fc.Name](vObj, j))
+						sn.Builder.PrependUint32(sn.conf.Uint32ListGetters[fc.Name](vObj, j))
 					}
 				case TypeEnumInt32List:
 					_ = StartVector(sn.Builder, listLength, 4) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						sn.Builder.PrependInt32(sn.Callbacks.Int32ListGetters[fc.Name](vObj, j))
+						sn.Builder.PrependInt32(sn.conf.Int32ListGetters[fc.Name](vObj, j))
 					}
 				case TypeEnumUint16List:
 					_ = StartVector(sn.Builder, listLength, 2) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						val := sn.Callbacks.Uint16ListGetters[fc.Name](vObj, j)
+						val := sn.conf.Uint16ListGetters[fc.Name](vObj, j)
 						sn.Builder.PrependUint16(val)
 					}
 				case TypeEnumInt16List:
 					_ = StartVector(sn.Builder, listLength, 2) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						val := sn.Callbacks.Int16ListGetters[fc.Name](vObj, j)
+						val := sn.conf.Int16ListGetters[fc.Name](vObj, j)
 						sn.Builder.PrependInt16(val)
 					}
 				case TypeEnumUint8List:
 					_ = StartVector(sn.Builder, listLength, 1) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						val := sn.Callbacks.Uint8ListGetters[fc.Name](vObj, j)
+						val := sn.conf.Uint8ListGetters[fc.Name](vObj, j)
 						sn.Builder.PrependByte(val)
 					}
 				case TypeEnumInt8List:
 					_ = StartVector(sn.Builder, listLength, 1) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						val := sn.Callbacks.Int8ListGetters[fc.Name](vObj, j)
+						val := sn.conf.Int8ListGetters[fc.Name](vObj, j)
 						sn.Builder.PrependInt8(val)
 					}
 				case TypeEnumFloat64List:
 					_ = StartVector(sn.Builder, listLength, 8) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						val := sn.Callbacks.Float64ListGetters[fc.Name](vObj, j)
+						val := sn.conf.Float64ListGetters[fc.Name](vObj, j)
 						sn.Builder.PrependFloat64(val)
 					}
 				case TypeEnumFloat32List:
 					_ = StartVector(sn.Builder, listLength, 4) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
-						val := sn.Callbacks.Float32ListGetters[fc.Name](vObj, j)
+						val := sn.conf.Float32ListGetters[fc.Name](vObj, j)
 						sn.Builder.PrependFloat32(val)
 					}
 				}
@@ -113,32 +113,32 @@ func (sn *FlatNode[K, V, VList]) FillVectorOffsetsMap(vList []V, strOffsets map[
 
 func (sn *FlatNode[K, V, VList]) FillVFields(v V, strOffsets map[string]flatbuffers.UOffsetT, vectorOffsetsMap map[string]flatbuffers.UOffsetT) flatbuffers.UOffsetT {
 	sn.VStart(sn.Builder)
-	for slot, fc := range sn.TableConfigs[sn.VName] {
+	for slot, fc := range sn.conf.tableConfigs[sn.conf.vName] {
 		switch fc.Type {
 		case TypeEnumUint64:
-			AddUint64Field(sn.Builder, slot, sn.Callbacks.Uint64Getters[fc.Name](v))
+			AddUint64Field(sn.Builder, slot, sn.conf.Uint64Getters[fc.Name](v))
 		case TypeEnumInt64:
-			AddInt64Field(sn.Builder, slot, sn.Callbacks.Int64Getters[fc.Name](v))
+			AddInt64Field(sn.Builder, slot, sn.conf.Int64Getters[fc.Name](v))
 		case TypeEnumUint32:
-			AddUint32Field(sn.Builder, slot, sn.Callbacks.Uint32Getters[fc.Name](v))
+			AddUint32Field(sn.Builder, slot, sn.conf.Uint32Getters[fc.Name](v))
 		case TypeEnumInt32:
-			AddInt32Field(sn.Builder, slot, sn.Callbacks.Int32Getters[fc.Name](v))
+			AddInt32Field(sn.Builder, slot, sn.conf.Int32Getters[fc.Name](v))
 		case TypeEnumUint16:
-			AddUint16Field(sn.Builder, slot, sn.Callbacks.Uint16Getters[fc.Name](v))
+			AddUint16Field(sn.Builder, slot, sn.conf.Uint16Getters[fc.Name](v))
 		case TypeEnumInt16:
-			AddInt16Field(sn.Builder, slot, sn.Callbacks.Int16Getters[fc.Name](v))
+			AddInt16Field(sn.Builder, slot, sn.conf.Int16Getters[fc.Name](v))
 		case TypeEnumUint8:
-			AddByteField(sn.Builder, slot, sn.Callbacks.ByteGetters[fc.Name](v))
+			AddByteField(sn.Builder, slot, sn.conf.ByteGetters[fc.Name](v))
 		case TypeEnumBool:
-			AddBoolField(sn.Builder, slot, sn.Callbacks.BoolGetters[fc.Name](v))
+			AddBoolField(sn.Builder, slot, sn.conf.BoolGetters[fc.Name](v))
 		case TypeEnumFloat64:
-			AddFloat64Field(sn.Builder, slot, sn.Callbacks.Float64Getters[fc.Name](v))
+			AddFloat64Field(sn.Builder, slot, sn.conf.Float64Getters[fc.Name](v))
 		case TypeEnumFloat32:
-			AddFloat32Field(sn.Builder, slot, sn.Callbacks.Float32Getters[fc.Name](v))
+			AddFloat32Field(sn.Builder, slot, sn.conf.Float32Getters[fc.Name](v))
 		case TypeEnumString:
-			AddOffsetField(sn.Builder, slot, strOffsets[string(sn.Callbacks.StringGetters[fc.Name](v))])
+			AddOffsetField(sn.Builder, slot, strOffsets[string(sn.conf.StringGetters[fc.Name](v))])
 		case TypeEnumInt8:
-			AddInt8Field(sn.Builder, slot, sn.Callbacks.Int8Getters[fc.Name](v))
+			AddInt8Field(sn.Builder, slot, sn.conf.Int8Getters[fc.Name](v))
 		case TypeEnumUint64List, TypeEnumInt64List, TypeEnumUint32List, TypeEnumInt32List, TypeEnumUint16List, TypeEnumInt16List, TypeEnumUint8List, TypeEnumInt8List, TypeEnumFloat64List, TypeEnumFloat32List, TypeEnumStringList:
 			AddOffsetField(sn.Builder, slot, vectorOffsetsMap[fc.Name])
 		}

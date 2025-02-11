@@ -1,10 +1,5 @@
 package flatmap
 
-import (
-	"fmt"
-	"sync"
-)
-
 /*
    {
      "name": "ScalarListField",
@@ -15,38 +10,32 @@ import (
    }
 */
 
-type FlatConfig[K comparable, V VType, VList VListType[V]] struct {
-	// The level of the node in the shard tree
-	Level    int
-	parentWg *sync.WaitGroup
+// type FlatConfig[K comparable, V VType, VList VListType[V]] struct {
+// 	// The level of the node in the shard tree
+// 	level int
+// 	// parentWg *sync.WaitGroup
 
-	// The initial data to populate the shard with
-	InitialBuffer []byte
-	InitialKeys   [][]K
-	keyIndexes    []int
-	// The function to read a message into a V
+// 	// The initial data to populate the shard with
+// 	// InitialBuffer []byte
+// 	// InitialKeys   [][]K
+// 	// keyIndexes    []int
+// 	// The function to read a message into a V
 
-	// The function to extract keys from a value of type V
-	// GetKeys func(data []byte) []K
+// 	// The function to extract keys from a value of type V
+// 	// GetKeys func(data []byte) []K
 
-	// Update Period
-	UpdateSeconds int
+// 	// Callbacks
+// 	conf conf[K, V, VList]
 
-	// Callbacks
-	Callbacks CallbackConfig[V, VList]
-
-	TableConfigs map[string][]FieldConfig
-	vName        string
-	fieldCount   int
-}
+// 	// TableConfigs map[string][]FieldConfig
+// 	// vName        string
+// 	// fieldCount   int
+// }
 
 func (fc *FlatConfig[K, V, VList]) Validate() error {
-	if fc.Level < 0 {
-		return fmt.Errorf("Level must be greater than or equal to 0")
-	}
-	if fc.UpdateSeconds <= 0 {
-		return fmt.Errorf("UpdateSeconds must be greater than 0")
-	}
+	// if fc.UpdateSeconds <= 0 {
+	// 	return fmt.Errorf("UpdateSeconds must be greater than 0")
+	// }
 	// if fc.Callbacks.GetRoot == nil {
 	// 	return fmt.Errorf("GetRoot function must be provided")
 	// }
