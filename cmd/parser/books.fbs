@@ -1,6 +1,10 @@
 namespace books;
 
-enum Color : byte { Red = 0, Green, Blue }
+enum Color : ubyte { Red = 0, Green, Blue }
+
+enum Status : ubyte { UNKNOWN = 0, ACTIVE, PAUSED, DELETED, ARCHIVED}
+
+enum AdType : ubyte { UNKNOWN = 0, DISPLAY, VIDEO, PRODUCT, DISPLAY_WITH_PRODUCT, VIDEO_WITH_PRODUCT}
 
 table Book {
     id: ulong;         
@@ -9,6 +13,7 @@ table Book {
     rate: double;
     list_field: [string];
     scalar_list_field: [ulong];
+    ad_type: AdType;
 }
 
 table BookList {

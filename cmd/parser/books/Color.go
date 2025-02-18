@@ -4,7 +4,7 @@ package books
 
 import "strconv"
 
-type Color int8
+type Color byte
 
 const (
 	ColorRed   Color = 0

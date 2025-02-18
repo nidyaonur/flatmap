@@ -128,8 +128,20 @@ func (rcv *Book) MutateScalarListField(j int, n uint64) bool {
 	return false
 }
 
+func (rcv *Book) AdType() AdType {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
+	if o != 0 {
+		return AdType(rcv._tab.GetByte(o + rcv._tab.Pos))
+	}
+	return 0
+}
+
+func (rcv *Book) MutateAdType(n AdType) bool {
+	return rcv._tab.MutateByteSlot(16, byte(n))
+}
+
 func BookStart(builder *flatbuffers.Builder) {
-	builder.StartObject(6)
+	builder.StartObject(7)
 }
 func BookAddId(builder *flatbuffers.Builder, id uint64) {
 	builder.PrependUint64Slot(0, id, 0)
@@ -154,6 +166,9 @@ func BookAddScalarListField(builder *flatbuffers.Builder, scalarListField flatbu
 }
 func BookStartScalarListFieldVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
 	return builder.StartVector(8, numElems, 8)
+}
+func BookAddAdType(builder *flatbuffers.Builder, adType AdType) {
+	builder.PrependByteSlot(6, byte(adType), 0)
 }
 func BookEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

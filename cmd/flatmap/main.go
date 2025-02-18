@@ -17,10 +17,9 @@ func main() {
 		fmt.Println("Failed to construct flat map:", err)
 		return
 	}
-	wg := &sync.WaitGroup{}
-	writeFlatBookMap(flatMap, testSize, wg)
-	readFlatBookMap(flatMap, testSize, wg)
-	wg.Wait()
+	// writeFlatBookMap(flatMap, testSize)
+	readFlatBookMap(flatMap, testSize)
+
 	fmt.Println("Done")
 
 }
@@ -52,6 +51,7 @@ func constructFlatBookMap(testSize int) (*flatmap.FlatNode[int, *books.Book, *bo
 		books.BookAddPageCount(builder, uint64(id))
 		books.BookAddScalarListField(builder, scalarListFieldVector)
 		books.BookAddListField(builder, listFieldVector)
+		books.BookAddAdType(builder, books.AdType(1))
 		book := books.BookEnd(builder)
 		builder.Finish(book)
 		deltaItems[i] = flatmap.DeltaItem[int]{
@@ -74,6 +74,7 @@ func constructFlatBookMap(testSize int) (*flatmap.FlatNode[int, *books.Book, *bo
 			id := int(b.Id())
 			return []int{id % 100, id}
 		},
+		EnumByteGetter: books.EnumByteGetter[*books.Book],
 	}
 	flatMap := flatmap.NewFlatNode(flatConf, books.Tables, 0)
 	flatMap.FeedDeltaBulk(deltaItems)
@@ -81,8 +82,9 @@ func constructFlatBookMap(testSize int) (*flatmap.FlatNode[int, *books.Book, *bo
 	return flatMap, nil
 }
 
-func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList], testSize int, wg *sync.WaitGroup) {
+func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList], testSize int) {
 	// timeStart := time.Now()
+	wg := &sync.WaitGroup{}
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
@@ -126,15 +128,23 @@ func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList
 							j, string(listField), fmt.Sprintf("Book SField %d", j+k))
 					}
 				}
+				adType := book.AdType()
+				if adType != books.AdType(1) {
+					fmt.Println("Failed to get ad type:", j, adType)
+				} else {
+					fmt.Println("Ad type:", adType)
+				}
 			}
 			wg.Done()
 		}()
 	}
 	// fmt.Println("Read time:", time.Since(timeStart))
+	wg.Wait()
 }
 
-func writeFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList], testSize int, wg *sync.WaitGroup) {
+func writeFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList], testSize int) {
 	// timeStart := time.Now()
+	wg := &sync.WaitGroup{}
 
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -173,4 +183,5 @@ func writeFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookLis
 		}()
 	}
 	// fmt.Println("Write time:", time.Since(timeStart))
+	wg.Wait()
 }
