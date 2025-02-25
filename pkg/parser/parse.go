@@ -15,16 +15,20 @@ func Parse(path, output, packageName string) {
 
 	var allTables []Table
 	var enums map[string]bool = make(map[string]bool)
+	var enumConfMap map[string]Enum = make(map[string]Enum)
 	if fileInfo.IsDir() {
 		err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if !info.IsDir() && filepath.Ext(filePath) == ".fbs" {
-				tables, enumSet := processFile(filePath)
+				tables, enumSet, enumMap := processFile(filePath)
 				allTables = append(allTables, tables...)
 				for k, v := range enumSet {
 					enums[k] = v
+				}
+				for k, v := range enumMap {
+					enumConfMap[k] = v
 				}
 			}
 			return nil
@@ -34,23 +38,26 @@ func Parse(path, output, packageName string) {
 		}
 	} else {
 		if filepath.Ext(path) == ".fbs" {
-			tables, enumSet := processFile(path)
+			tables, enumSet, enumMap := processFile(path)
 			allTables = append(allTables, tables...)
 			for k, v := range enumSet {
 				enums[k] = v
 			}
+			for k, v := range enumMap {
+				enumConfMap[k] = v
+			}
 		}
 	}
 
-	goCode := GenerateGoFile(allTables, enums, packageName)
+	goCode := GenerateGoFile(allTables, enums, enumConfMap, packageName)
 	os.WriteFile(output, []byte(goCode), 0644)
 }
 
-func processFile(path string) ([]Table, map[string]bool) {
+func processFile(path string) ([]Table, map[string]bool, map[string]Enum) {
 	fbs, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Println("Failed to read fbs file:", err)
-		return nil, nil
+		return nil, nil, nil
 	}
 	exampleFBS := string(fbs)
 
@@ -61,8 +68,8 @@ func processFile(path string) ([]Table, map[string]bool) {
 		for _, e := range newParser.Errors {
 			fmt.Println(" -", e)
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	return tables, newParser.enumSet
+	return tables, newParser.enumSet, newParser.enums
 }

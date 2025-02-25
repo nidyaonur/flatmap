@@ -3,33 +3,49 @@ package parser
 import (
 	"fmt"
 	"strings"
-
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
+// var titleCaser = cases.Title(language.Und)
+
+// Enum represents an enum definition.
+type Enum struct {
+	Name     string
+	BaseType string
+	Values   []EnumValue
+	Meta     []string
+}
+
+// EnumValue represents a single member of an enum.
+type EnumValue struct {
+	Name  string
+	Value string // literal value (empty string if not explicitly provided)
+}
+
+// Parser holds the state of the parser.
 type Parser struct {
 	lexer     *Lexer
 	lookahead Token
 	done      bool
 
 	tables []Table
+	enums  map[string]Enum
 	Errors []string
 
 	enumSet map[string]bool
 }
 
-var titleCaser = cases.Title(language.Und)
-
+// NewParser creates a new parser instance.
 func NewParser(input string) *Parser {
 	p := &Parser{
 		lexer:   NewLexer(input),
 		enumSet: make(map[string]bool),
+		enums:   make(map[string]Enum),
 	}
 	p.consume()
 	return p
 }
 
+// Parse loops until the end-of-file and returns all parsed tables.
 func (p *Parser) Parse() []Table {
 	// We loop until EOF
 	for !p.match(TokenEOF) && !p.match(TokenError) {
@@ -44,7 +60,7 @@ func (p *Parser) Parse() []Table {
 			p.parseTable()
 		case TokenEnum:
 			p.parseEnumDecl()
-		// skipping struct, enum, union, rpc_service, root_type etc. for brevity
+		// skipping struct, union, rpc_service, root_type etc. for brevity
 		default:
 			// If it's something else, just consume to avoid infinite loop
 			p.consume()
@@ -61,6 +77,7 @@ func (p *Parser) parseInclude() {
 	}
 	p.expect(TokenSemicolon)
 }
+
 func (p *Parser) parseNamespace() {
 	// `namespace` ident ( '.' ident )* ';'
 	p.consume() // consume 'namespace'
@@ -158,8 +175,7 @@ func (p *Parser) parseFieldDecl() Field {
 
 func (p *Parser) parseType() string {
 	// type = `bool` | `byte` | `ubyte` | ... | `string` | `[` type `]` | ident
-	// For simplicity, treat the next token(s) as a single string for type
-	// A real parser would parse nested bracket types carefully.
+	// For simplicity, treat the next token(s) as a single string for type.
 	if p.match(TokenIdent) ||
 		p.matchKeywordType(p.lookahead.Literal) {
 		t := p.lookahead.Literal
@@ -195,7 +211,96 @@ func (p *Parser) parseMetadata() []string {
 	return results
 }
 
+// parseEnumDecl parses an enum definition such as:
+//
+//	enum Color : byte { Red = 1, Green, Blue }
+func (p *Parser) parseEnumDecl() {
+	// Consume the 'enum' token.
+	p.consume()
+
+	if !p.match(TokenIdent) {
+		p.Errors = append(p.Errors, "expected enum name after 'enum'")
+		return
+	}
+	enumName := p.lookahead.Literal
+	p.consume() // consume the enum name
+
+	// Parse the optional underlying base type.
+	baseType := ""
+	if p.match(TokenColon) {
+		p.consume()              // consume ':'
+		baseType = p.parseType() // e.g., "byte"
+	}
+	if baseType != "ubyte" {
+		p.Errors = append(p.Errors, fmt.Sprintf("unsupported enum base type %q", baseType))
+		return
+	}
+
+	// Optional metadata (e.g. annotations)
+	meta := p.parseMetadata()
+
+	// Expect the opening curly brace.
+	p.expect(TokenLCurly)
+
+	var enumValues []EnumValue
+	// Parse enum members until the closing brace.
+	for !p.match(TokenRCurly) && !p.match(TokenEOF) && !p.match(TokenError) {
+		// Skip any commas between enum members.
+		if p.match(TokenComma) {
+			p.consume()
+			continue
+		}
+
+		// Expect an identifier for the enum member.
+		if !p.match(TokenIdent) {
+			p.Errors = append(p.Errors, "expected enum member identifier")
+			p.consume()
+			continue
+		}
+		memberName := p.lookahead.Literal
+		p.consume()
+
+		// Optionally, an '=' followed by a literal value.
+		memberValue := ""
+		if p.match(TokenEqual) {
+			p.consume() // consume '='
+			if p.match(TokenIntegerConst) || p.match(TokenFloatConst) || p.match(TokenIdent) {
+				memberValue = p.lookahead.Literal
+				p.consume()
+			} else {
+				p.Errors = append(p.Errors, "expected literal for enum value after '='")
+			}
+		}
+		enumValues = append(enumValues, EnumValue{
+			Name:  memberName,
+			Value: memberValue,
+		})
+		// Optionally, if there is a comma after the enum member, consume it.
+		if p.match(TokenComma) {
+			p.consume()
+		}
+	}
+	p.expect(TokenRCurly)
+
+	// Check for duplicate enum definitions.
+	if p.enumSet[enumName] {
+		p.Errors = append(p.Errors, fmt.Sprintf("duplicate enum definition for %s", enumName))
+	} else {
+		p.enumSet[enumName] = true
+	}
+
+	// Save the enum definition.
+	enumDef := Enum{
+		Name:     enumName,
+		BaseType: baseType,
+		Values:   enumValues,
+		Meta:     meta,
+	}
+	p.enums[enumDef.Name] = enumDef
+}
+
 // Utility methods
+
 func (p *Parser) match(t TokenType) bool {
 	return p.lookahead.Type == t
 }
@@ -233,39 +338,4 @@ func (p *Parser) consume() {
 		p.Errors = append(p.Errors, tok.Literal)
 		p.done = true
 	}
-}
-
-func (p *Parser) parseEnumDecl() {
-	// We already know the current token is TokenEnum, so consume it
-	p.consume() // consume 'enum'
-
-	if !p.match(TokenIdent) {
-		p.Errors = append(p.Errors, "expected enum name after 'enum'")
-		return
-	}
-	enumName := p.lookahead.Literal
-	p.consume() // consume the enum name
-
-	// skip the ':' type portion for simplicity (or parse it if needed)
-	if p.match(TokenColon) {
-		p.consume() // consume ':'
-		// parse the underlying base type (e.g. int, byte, etc.)
-		// but we are ignoring it because we force them all to int8
-		p.parseType()
-	}
-
-	// optional metadata
-	_ = p.parseMetadata()
-
-	// now expect '{ ... }'
-	p.expect(TokenLCurly)
-	// skip the contents until we reach '}'
-	// real parser would parse each enumval_decl, but we don't need them
-	for !p.match(TokenRCurly) && !p.match(TokenEOF) && !p.match(TokenError) {
-		p.consume()
-	}
-	p.expect(TokenRCurly)
-
-	// record in enumSet
-	p.enumSet[enumName] = true
 }

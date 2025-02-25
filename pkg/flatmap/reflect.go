@@ -58,14 +58,32 @@ func (sn *FlatNode[K, V, VList]) FillGettersWithReflect() error {
 				sn.conf.BoolGetters[name] = getter
 			case TypeEnumByte:
 				getterIface := method.Func.Interface()
-				getter, ok := getterIface.(func(V) byte)
-				if !ok {
-					return fmt.Errorf("unable to assert method %s to func(V) byte", method.Name)
+				//if isEnum create a byte getter instead
+				if fieldCfg.EnumName == "" {
+					getter, ok := getterIface.(func(V) byte)
+					if !ok {
+						return fmt.Errorf("unable to assert method %s to func(V) byte", method.Name)
+					}
+					if sn.conf.ByteGetters == nil {
+						sn.conf.ByteGetters = make(map[string]func(V) byte)
+					}
+					sn.conf.ByteGetters[name] = getter
+				} else {
+					// For enum fields, use the converter from the map.
+					converter, err := sn.conf.EnumByteGetter(fieldCfg.EnumName, getterIface)
+					if err != nil {
+						return fmt.Errorf("unsupported enum type: %s", fieldCfg.EnumName)
+					}
+					if sn.conf.ByteGetters == nil {
+						sn.conf.ByteGetters = make(map[string]func(V) byte)
+					}
+					sn.conf.ByteGetters[name] = func(v V) byte {
+						// This wrapper calls the converter, which performs a compile-time type assertion.
+						return converter(v)
+					}
+
 				}
-				if sn.conf.ByteGetters == nil {
-					sn.conf.ByteGetters = make(map[string]func(V) byte)
-				}
-				sn.conf.ByteGetters[name] = getter
+
 			case TypeEnumInt8:
 				// For enums we treat them as int8.
 				getterIface := method.Func.Interface()

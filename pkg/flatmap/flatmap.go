@@ -16,9 +16,10 @@ type FlatConfig[K comparable, V VType, VList VListType[V]] struct {
 	UpdateSeconds int
 
 	// Private fields
-	fieldCount   int
-	tableConfigs map[string][]FieldConfig
-	vName        string
+	fieldCount     int
+	tableConfigs   map[string][]FieldConfig
+	EnumByteGetter func(enumName string, getter interface{}) (func(V) byte, error)
+	vName          string
 
 	// Sorry for the long list of fields. We need to store all the getters for each field :(
 	BoolGetters        map[string]func(v V) bool
@@ -98,6 +99,7 @@ func NewFlatNode[K comparable, V VType, VList VListType[V]](
 					Type:         GetTypeEnum(f["type"]),
 					DefaultValue: f["defaultValue"],
 					Meta:         f["meta"],
+					EnumName:     f["enumName"],
 				}
 			}
 			structuredTableConfigs[k] = fc

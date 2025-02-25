@@ -24,4 +24,5 @@ type FieldConfig struct {
 	Type         TypeEnum
 	DefaultValue string
 	Meta         string
+	EnumName     string
 }

@@ -127,7 +127,7 @@ func (sn *FlatNode[K, V, VList]) FillVFields(v V, strOffsets map[string]flatbuff
 			AddUint16Field(sn.Builder, slot, sn.conf.Uint16Getters[fc.Name](v))
 		case TypeEnumInt16:
 			AddInt16Field(sn.Builder, slot, sn.conf.Int16Getters[fc.Name](v))
-		case TypeEnumUint8:
+		case TypeEnumUint8, TypeEnumByte:
 			AddByteField(sn.Builder, slot, sn.conf.ByteGetters[fc.Name](v))
 		case TypeEnumBool:
 			AddBoolField(sn.Builder, slot, sn.conf.BoolGetters[fc.Name](v))
