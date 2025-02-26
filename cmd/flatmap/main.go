@@ -62,7 +62,7 @@ func constructFlatBookMap(testSize int) (*flatmap.FlatNode[int, *books.Book, *bo
 	}
 	timeStart := time.Now()
 
-	flatConf := flatmap.FlatConfig[int, *books.Book, *books.BookList]{
+	flatConf := &flatmap.FlatConfig[int, *books.Book, *books.BookList]{
 		UpdateSeconds: 15,
 		NewV: func() *books.Book {
 			return &books.Book{}

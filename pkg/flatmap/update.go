@@ -12,7 +12,9 @@ func (sn *FlatNode[K, V, VList]) PeriodicUpdate() {
 		if len(sn.pendingDelta) == 0 && len(sn.deleted) == 0 {
 			continue
 		}
-		sn.Update(nil)
+		if sn.conf.PeriodicUpdate {
+			sn.Update(nil)
+		}
 
 	}
 }
