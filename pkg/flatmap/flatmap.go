@@ -10,11 +10,10 @@ import (
 // (Note: for enums we treat them as int8.)
 type FlatConfig[K comparable, V VType, VList VListType[V]] struct {
 	// Public fields
-	NewV           func() V
-	NewVList       func() VList
-	GetKeysFromV   func(v V) []K
-	UpdateSeconds  int
-	PeriodicUpdate bool
+	NewV          func() V
+	NewVList      func() VList
+	GetKeysFromV  func(v V) []K
+	UpdateSeconds int
 
 	// Private fields
 	fieldCount     int
@@ -83,13 +82,6 @@ type FlatNode[K comparable, V VType, VList VListType[V]] struct {
 	deleted map[K]bool
 
 	conf *FlatConfig[K, V, VList]
-}
-
-func (sn *FlatNode[K, V, VList]) Start() {
-	sn.conf.PeriodicUpdate = true
-}
-func (sn *FlatNode[K, V, VList]) Stop() {
-	sn.conf.PeriodicUpdate = false
 }
 
 func NewFlatNode[K comparable, V VType, VList VListType[V]](
