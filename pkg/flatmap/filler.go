@@ -145,7 +145,7 @@ func (sn *FlatNode[K, V, VList]) FillVFields(v V, strOffsets map[string]flatbuff
 			AddOffsetField(sn.Builder, slot, strOffsets[string(sn.conf.StringGetters[fc.Name](v))])
 		case TypeEnumInt8:
 			AddInt8Field(sn.Builder, slot, sn.conf.Int8Getters[fc.Name](v))
-		case TypeEnumUint64List, TypeEnumInt64List, TypeEnumUint32List, TypeEnumInt32List, TypeEnumUint16List, TypeEnumInt16List, TypeEnumUint8List, TypeEnumInt8List, TypeEnumFloat64List, TypeEnumFloat32List, TypeEnumStringList:
+		case TypeEnumUint64List, TypeEnumInt64List, TypeEnumUint32List, TypeEnumInt32List, TypeEnumUint16List, TypeEnumInt16List, TypeEnumUint8List, TypeEnumInt8List, TypeEnumFloat64List, TypeEnumFloat32List, TypeEnumStringList, TypeEnumByteList:
 			AddOffsetField(sn.Builder, slot, vectorOffsetsMap[fc.Name])
 		}
 	}
