@@ -88,6 +88,12 @@ func (sn *FlatNode[K, V, VList]) FillVectorOffsetsMap(vList []V, strOffsets map[
 						val := sn.conf.Int8ListGetters[fc.Name](vObj, j)
 						sn.Builder.PrependInt8(val)
 					}
+				case TypeEnumByteList:
+					_ = StartVector(sn.Builder, listLength, 1) // internal offset, not needed
+					for j := listLength - 1; j >= 0; j-- {
+						val := sn.conf.ByteListGetters[fc.Name](vObj, j)
+						sn.Builder.PrependByte(val)
+					}
 				case TypeEnumFloat64List:
 					_ = StartVector(sn.Builder, listLength, 8) // internal offset, not needed
 					for j := listLength - 1; j >= 0; j-- {
