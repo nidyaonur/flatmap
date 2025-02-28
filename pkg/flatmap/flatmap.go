@@ -10,10 +10,11 @@ import (
 // (Note: for enums we treat them as int8.)
 type FlatConfig[K comparable, V VType, VList VListType[V]] struct {
 	// Public fields
-	NewV          func() V
-	NewVList      func() VList
-	GetKeysFromV  func(v V) []K
-	UpdateSeconds int
+	NewV            func() V
+	NewVList        func() VList
+	GetKeysFromV    func(v V) []K
+	CheckVForDelete func(v V) bool
+	UpdateSeconds   int
 
 	// Private fields
 	fieldCount     int

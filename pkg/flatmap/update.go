@@ -110,11 +110,15 @@ func (sn *FlatNode[K, V, VList]) Update(bulkDelta []DeltaItem[K]) {
 			sn.FillStrOffsets(vObj, strOffsets, vFieldConfig)
 		}
 		// listVector := sn.GetRootAsVList(sn.pendingBuffer.Bytes())
+		deleteFuncSet := sn.conf.CheckVForDelete != nil
 		vLen := len(vList)
 		for _, i := range pendingKeys {
 			delta := sn.pendingDelta[i]
-			newIndexes[delta.Keys[sn.level]] = int64(vLen)
 			vObj := sn.GetRootAsV(delta.Data)
+			if deleteFuncSet && sn.conf.CheckVForDelete(vObj) {
+				continue
+			}
+			newIndexes[delta.Keys[sn.level]] = int64(vLen)
 			vList = append(vList, vObj)
 			sn.FillStrOffsets(vObj, strOffsets, vFieldConfig)
 			// fmt.Println(delta.Keys[sn.level])
