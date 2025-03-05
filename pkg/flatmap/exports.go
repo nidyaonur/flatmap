@@ -8,6 +8,9 @@ func (sn *FlatNode[K, V, VList]) Get(keys []K, v V) bool {
 	if len(keys) == 0 {
 		return false
 	}
+	if sn.nodeType == NodeUndecided {
+		return false
+	}
 	if sn.nodeType == NodeNonLeaf {
 		child, ok := sn.children[keys[sn.level]]
 		if !ok {
@@ -34,6 +37,9 @@ func (sn *FlatNode[K, V, VList]) Get(keys []K, v V) bool {
 func (sn *FlatNode[K, V, VList]) GetBatch(keys []K) (vList VList, found bool) {
 	// example call Get([]uint64{mp_id: 1, cmp_id: 2, c_id: 3})
 	if len(keys) == 0 {
+		return
+	}
+	if sn.nodeType == NodeUndecided {
 		return
 	}
 	if sn.nodeType == NodeNonLeaf {
