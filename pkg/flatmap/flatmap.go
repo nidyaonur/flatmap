@@ -119,9 +119,11 @@ func NewFlatNode[K comparable, V VType, VList VListType[V]](
 
 	go sn.PeriodicUpdate()
 	// sn.InitializeReceiversWithReflect()
-	err := sn.FillGettersWithReflect()
-	if err != nil {
-		panic(err)
+	if sn.level == 0 {
+		err := sn.FillGettersWithReflect()
+		if err != nil {
+			panic(err)
+		}
 	}
 	// sn.FillInitialData(conf.InitialBuffer, conf.InitialKeys, conf.keyIndexes)
 	return sn
