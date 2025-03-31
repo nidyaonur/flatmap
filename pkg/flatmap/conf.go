@@ -32,7 +32,7 @@ package flatmap
 // 	// fieldCount   int
 // }
 
-func (fc *FlatConfig[K, V, VList]) Validate() error {
+func (fc *FlatConfig[K, VT, V, VList]) Validate() error {
 	// if fc.UpdateSeconds <= 0 {
 	// 	return fmt.Errorf("UpdateSeconds must be greater than 0")
 	// }

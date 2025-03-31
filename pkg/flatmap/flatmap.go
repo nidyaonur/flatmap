@@ -8,7 +8,7 @@ import (
 
 // CallbackConfig holds functions to create new V/VList values as well as getter/setter functions.
 // (Note: for enums we treat them as int8.)
-type FlatConfig[K comparable, V VType, VList VListType[V]] struct {
+type FlatConfig[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] struct {
 	// Public fields
 	NewV            func() V
 	NewVList        func() VList
@@ -17,43 +17,43 @@ type FlatConfig[K comparable, V VType, VList VListType[V]] struct {
 	UpdateSeconds   int
 
 	// Private fields
-	fieldCount     int
-	tableConfigs   map[string][]FieldConfig
-	EnumByteGetter func(enumName string, getter interface{}) (func(V) byte, error)
-	vName          string
+	fieldCount   int
+	tableConfigs map[string][]FieldConfig
+	// EnumByteGetter func(enumName string, getter interface{}) (func(V) byte, error)
+	vName string
 
-	// Sorry for the long list of fields. We need to store all the getters for each field :(
-	BoolGetters        map[string]func(v V) bool
-	ByteGetters        map[string]func(v V) byte
-	Int8Getters        map[string]func(v V) int8 // for enums
-	Int16Getters       map[string]func(v V) int16
-	Int32Getters       map[string]func(v V) int32
-	Int64Getters       map[string]func(v V) int64
-	Uint8Getters       map[string]func(v V) uint8
-	Uint16Getters      map[string]func(v V) uint16
-	Uint32Getters      map[string]func(v V) uint32
-	Uint64Getters      map[string]func(v V) uint64
-	Float32Getters     map[string]func(v V) float32
-	Float64Getters     map[string]func(v V) float64
-	StringGetters      map[string]func(v V) []byte
-	BoolListGetters    map[string]func(v V, idx int) bool
-	ByteListGetters    map[string]func(v V, idx int) byte
-	Int8ListGetters    map[string]func(v V, idx int) int8
-	Int16ListGetters   map[string]func(v V, idx int) int16
-	Int32ListGetters   map[string]func(v V, idx int) int32
-	Int64ListGetters   map[string]func(v V, idx int) int64
-	Uint8ListGetters   map[string]func(v V, idx int) uint8
-	Uint16ListGetters  map[string]func(v V, idx int) uint16
-	Uint32ListGetters  map[string]func(v V, idx int) uint32
-	Uint64ListGetters  map[string]func(v V, idx int) uint64
-	Float32ListGetters map[string]func(v V, idx int) float32
-	Float64ListGetters map[string]func(v V, idx int) float64
-	StringListGetters  map[string]func(v V, idx int) []byte
-	LengthGetters      map[string]func(v V) int
+	// // Sorry for the long list of fields. We need to store all the getters for each field :(
+	// BoolGetters        map[string]func(v V) bool
+	// ByteGetters        map[string]func(v V) byte
+	// Int8Getters        map[string]func(v V) int8 // for enums
+	// Int16Getters       map[string]func(v V) int16
+	// Int32Getters       map[string]func(v V) int32
+	// Int64Getters       map[string]func(v V) int64
+	// Uint8Getters       map[string]func(v V) uint8
+	// Uint16Getters      map[string]func(v V) uint16
+	// Uint32Getters      map[string]func(v V) uint32
+	// Uint64Getters      map[string]func(v V) uint64
+	// Float32Getters     map[string]func(v V) float32
+	// Float64Getters     map[string]func(v V) float64
+	// StringGetters      map[string]func(v V) []byte
+	// BoolListGetters    map[string]func(v V, idx int) bool
+	// ByteListGetters    map[string]func(v V, idx int) byte
+	// Int8ListGetters    map[string]func(v V, idx int) int8
+	// Int16ListGetters   map[string]func(v V, idx int) int16
+	// Int32ListGetters   map[string]func(v V, idx int) int32
+	// Int64ListGetters   map[string]func(v V, idx int) int64
+	// Uint8ListGetters   map[string]func(v V, idx int) uint8
+	// Uint16ListGetters  map[string]func(v V, idx int) uint16
+	// Uint32ListGetters  map[string]func(v V, idx int) uint32
+	// Uint64ListGetters  map[string]func(v V, idx int) uint64
+	// Float32ListGetters map[string]func(v V, idx int) float32
+	// Float64ListGetters map[string]func(v V, idx int) float64
+	// StringListGetters  map[string]func(v V, idx int) []byte
+	// LengthGetters      map[string]func(v V) int
 }
 
 // FlatNode represents a node in the sharded map/tree structure.
-type FlatNode[K comparable, V VType, VList VListType[V]] struct {
+type FlatNode[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] struct {
 	// Whether this node is a leaf or an internal node
 	nodeType NodeEnum
 
@@ -63,7 +63,7 @@ type FlatNode[K comparable, V VType, VList VListType[V]] struct {
 	// FieldCount int
 
 	// Children in the shard tree keyed by hashes
-	children map[K]*FlatNode[K, V, VList]
+	children map[K]*FlatNode[K, VT, V, VList]
 
 	// Triple buffer containing read/write/backup buffers
 	ReadBuffer   []byte
@@ -73,7 +73,7 @@ type FlatNode[K comparable, V VType, VList VListType[V]] struct {
 	Builder      *flatbuffers.Builder
 
 	// Metadata for reads, e.g. storing offsets/sizes of items
-	indexes map[K]int64
+	indexes map[K]int
 
 	pendingDelta []DeltaItem[K]
 
@@ -82,34 +82,34 @@ type FlatNode[K comparable, V VType, VList VListType[V]] struct {
 
 	deleted map[K]bool
 
-	conf *FlatConfig[K, V, VList]
+	conf *FlatConfig[K, VT, V, VList]
 }
 
-func NewFlatNode[K comparable, V VType, VList VListType[V]](
-	conf *FlatConfig[K, V, VList],
-	tableConfigs map[string][]map[string]string,
+func NewFlatNode[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]](
+	conf *FlatConfig[K, VT, V, VList],
+	// tableConfigs map[string][]map[string]string,
 	level int,
-) *FlatNode[K, V, VList] {
-	if tableConfigs != nil {
-		structuredTableConfigs := make(map[string][]FieldConfig)
-		for k, v := range tableConfigs {
-			fc := make([]FieldConfig, len(v))
-			for i, f := range v {
-				fc[i] = FieldConfig{
-					Name:         f["name"],
-					Type:         GetTypeEnum(f["type"]),
-					DefaultValue: f["defaultValue"],
-					Meta:         f["meta"],
-					EnumName:     f["enumName"],
-				}
-			}
-			structuredTableConfigs[k] = fc
-		}
-		conf.tableConfigs = structuredTableConfigs
-	}
-	sn := &FlatNode[K, V, VList]{
-		children:         make(map[K]*FlatNode[K, V, VList]),
-		indexes:          make(map[K]int64),
+) *FlatNode[K, VT, V, VList] {
+	// if tableConfigs != nil {
+	// 	structuredTableConfigs := make(map[string][]FieldConfig)
+	// 	for k, v := range tableConfigs {
+	// 		fc := make([]FieldConfig, len(v))
+	// 		for i, f := range v {
+	// 			fc[i] = FieldConfig{
+	// 				Name:         f["name"],
+	// 				Type:         GetTypeEnum(f["type"]),
+	// 				DefaultValue: f["defaultValue"],
+	// 				Meta:         f["meta"],
+	// 				EnumName:     f["enumName"],
+	// 			}
+	// 		}
+	// 		structuredTableConfigs[k] = fc
+	// 	}
+	// 	conf.tableConfigs = structuredTableConfigs
+	// }
+	sn := &FlatNode[K, VT, V, VList]{
+		children:         make(map[K]*FlatNode[K, VT, V, VList]),
+		indexes:          make(map[K]int),
 		level:            level,
 		conf:             conf,
 		rwMutex:          sync.RWMutex{},
@@ -119,12 +119,12 @@ func NewFlatNode[K comparable, V VType, VList VListType[V]](
 
 	go sn.PeriodicUpdate()
 	// sn.InitializeReceiversWithReflect()
-	if sn.level == 0 {
-		err := sn.FillGettersWithReflect()
-		if err != nil {
-			panic(err)
-		}
-	}
+	// if sn.level == 0 {
+	// 	err := sn.FillGettersWithReflect()
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// }
 	// sn.FillInitialData(conf.InitialBuffer, conf.InitialKeys, conf.keyIndexes)
 	return sn
 }
@@ -225,36 +225,34 @@ func NewFlatNode[K comparable, V VType, VList VListType[V]](
 // 	return nil
 // }
 
-func (sn *FlatNode[K, V, VList]) GetRootAsV(buf []byte) V {
+func (sn *FlatNode[K, VT, V, VList]) GetRootAsV(buf []byte, x V) {
 	n := flatbuffers.GetUOffsetT(buf[0:])
-	x := sn.conf.NewV()
 	x.Init(buf, n)
-	return x
 }
 
-func (sn *FlatNode[K, V, VList]) GetRootAsVList(buf []byte) VList {
+func (sn *FlatNode[K, VT, V, VList]) GetRootAsVList(buf []byte) VList {
 	n := flatbuffers.GetUOffsetT(buf[0:])
 	x := sn.conf.NewVList()
 	x.Init(buf, n)
 	return x
 }
 
-func (sn *FlatNode[K, V, VList]) VStart(builder *flatbuffers.Builder) {
+func (sn *FlatNode[K, VT, V, VList]) VStart(builder *flatbuffers.Builder) {
 	builder.StartObject(sn.conf.fieldCount)
 }
 
-func (sn *FlatNode[K, V, VList]) VListStart(builder *flatbuffers.Builder) {
+func (sn *FlatNode[K, VT, V, VList]) VListStart(builder *flatbuffers.Builder) {
 	builder.StartObject(1)
 }
 
-func (sn *FlatNode[K, V, VList]) End(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
+func (sn *FlatNode[K, VT, V, VList]) End(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
 
-func (sn *FlatNode[K, V, VList]) VListStartChildrenVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
+func (sn *FlatNode[K, VT, V, VList]) VListStartChildrenVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
 	return builder.StartVector(4, numElems, 4)
 }
 
-func (sn *FlatNode[K, V, VList]) VListAddChildren(builder *flatbuffers.Builder, children flatbuffers.UOffsetT) {
+func (sn *FlatNode[K, VT, V, VList]) VListAddChildren(builder *flatbuffers.Builder, children flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(children), 0)
 }

@@ -6,7 +6,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-func (sn *FlatNode[K, V, VList]) PeriodicUpdate() {
+func (sn *FlatNode[K, VT, V, VList]) PeriodicUpdate() {
 	for {
 		time.Sleep(time.Duration(sn.conf.UpdateSeconds) * time.Second)
 		if len(sn.pendingDelta) == 0 && len(sn.deleted) == 0 {
@@ -17,14 +17,14 @@ func (sn *FlatNode[K, V, VList]) PeriodicUpdate() {
 	}
 }
 
-func (sn *FlatNode[K, V, VList]) FeedDeltaBulk(deltaList []DeltaItem[K]) {
+func (sn *FlatNode[K, VT, V, VList]) FeedDeltaBulk(deltaList []DeltaItem[K]) {
 	if len(deltaList) == 0 {
 		return
 	}
 	sn.Update(deltaList)
 }
 
-func (sn *FlatNode[K, V, VList]) DecideNodeType() {
+func (sn *FlatNode[K, VT, V, VList]) DecideNodeType() {
 	if sn.nodeType == NodeUndecided { //decide on whether or not this should be leaf
 		var keyLen int
 		if len(sn.pendingDelta) == 0 {
@@ -44,7 +44,7 @@ func (sn *FlatNode[K, V, VList]) DecideNodeType() {
 	}
 }
 
-func (sn *FlatNode[K, V, VList]) Update(bulkDelta []DeltaItem[K]) {
+func (sn *FlatNode[K, VT, V, VList]) Update(bulkDelta []DeltaItem[K]) {
 	sn.rwMutex.Lock()
 	defer sn.rwMutex.Unlock()
 	if len(bulkDelta) != 0 {
@@ -84,14 +84,15 @@ func (sn *FlatNode[K, V, VList]) Update(bulkDelta []DeltaItem[K]) {
 		sn.Builder.Bytes = sn.WriteBuffer
 		sn.Builder.Reset()
 		// copy the read buffer to the write buffer
-		newIndexes := make(map[K]int64)
-		vList := make([]V, 0, len(pendingKeys)+childrenLen)
+		newIndexes := make(map[K]int, len(sn.pendingDelta)+childrenLen)
+		newOffsets := make([]flatbuffers.UOffsetT, 0, len(sn.pendingDelta)+childrenLen)
+		// vList := make([]V, 0, len(pendingKeys)+childrenLen)
 
-		strOffsets := make(map[string]flatbuffers.UOffsetT)
-		vFieldConfig := sn.conf.tableConfigs[sn.conf.vName]
-
+		// strOffsets := make(map[string]flatbuffers.UOffsetT)
+		// vFieldConfig := sn.conf.tableConfigs[sn.conf.vName]
+		var vt VT
+		var vObj V = sn.conf.NewV()
 		for i := 0; i < childrenLen; i++ { //TODO: assign to a variable
-			vObj := sn.conf.NewV()
 			created := sn.Vlist.Children(vObj, i)
 			if !created {
 				// log.Println("Failed to create V object")
@@ -104,38 +105,51 @@ func (sn *FlatNode[K, V, VList]) Update(bulkDelta []DeltaItem[K]) {
 			if _, ok := pendingKeys[keys[sn.level]]; ok {
 				continue
 			}
-			vList = append(vList, vObj)
-			newIndexes[keys[sn.level]] = int64(len(vList) - 1)
+			// vList = append(vList, vObj)
+			if len(newOffsets) == 0 {
+				vt = vObj.UnPack()
+			} else {
+				vObj.UnPackTo(vt)
+			}
+			newIndexes[keys[sn.level]] = len(newOffsets)
+			newOffsets = append(newOffsets, vt.Pack(sn.Builder))
 
-			sn.FillStrOffsets(vObj, strOffsets, vFieldConfig)
+			// sn.FillStrOffsets(vObj, strOffsets, vFieldConfig)
 		}
 		// listVector := sn.GetRootAsVList(sn.pendingBuffer.Bytes())
 		deleteFuncSet := sn.conf.CheckVForDelete != nil
-		vLen := len(vList)
+		// vLen := len(vList)
 		for _, i := range pendingKeys {
 			delta := sn.pendingDelta[i]
-			vObj := sn.GetRootAsV(delta.Data)
+			sn.GetRootAsV(delta.Data, vObj)
 			if deleteFuncSet && sn.conf.CheckVForDelete(vObj) {
 				continue
 			}
-			newIndexes[delta.Keys[sn.level]] = int64(vLen)
-			vList = append(vList, vObj)
-			sn.FillStrOffsets(vObj, strOffsets, vFieldConfig)
+			if len(newOffsets) == 0 {
+				vt = vObj.UnPack()
+			} else {
+				vObj.UnPackTo(vt)
+			}
+			newIndexes[delta.Keys[sn.level]] = len(newOffsets)
+			newOffsets = append(newOffsets, vt.Pack(sn.Builder))
+
+			// vList = append(vList, vObj)
+			// sn.FillStrOffsets(vObj, strOffsets, vFieldConfig)
 			// fmt.Println(delta.Keys[sn.level])
-			vLen++
+			// vLen++
 
 		}
-		vectorOffsets := sn.FillVectorOffsetsMap(vList, strOffsets)
-		vOffsets := make([]flatbuffers.UOffsetT, len(vList))
-		for i, v := range vList {
-			vOffsets[i] = sn.FillVFields(v, strOffsets, vectorOffsets[i])
-		}
+		// vectorOffsets := sn.FillVectorOffsetsMap(vList, strOffsets)
+		// vOffsets := make([]flatbuffers.UOffsetT, len(vList))
+		// for i, v := range vList {
+		// 	vOffsets[i] = sn.FillVFields(v, strOffsets, vectorOffsets[i])
+		// }
 
-		sn.VListStartChildrenVector(sn.Builder, len(vOffsets))
-		for i := len(vOffsets) - 1; i >= 0; i-- {
-			sn.Builder.PrependUOffsetT(vOffsets[i])
+		sn.VListStartChildrenVector(sn.Builder, len(newOffsets))
+		for i := len(newOffsets) - 1; i >= 0; i-- {
+			sn.Builder.PrependUOffsetT(newOffsets[i])
 		}
-		vVector := sn.Builder.EndVector(len(vOffsets))
+		vVector := sn.Builder.EndVector(len(newOffsets))
 		sn.VListStart(sn.Builder)
 		sn.VListAddChildren(sn.Builder, vVector)
 		vListOffset := sn.End(sn.Builder)
@@ -163,7 +177,7 @@ func (sn *FlatNode[K, V, VList]) Update(bulkDelta []DeltaItem[K]) {
 		newKeys := []K{}
 		for key := range groupedDelta {
 			if _, ok := sn.children[key]; !ok {
-				sn.children[key] = NewFlatNode(sn.conf, nil, sn.level+1)
+				sn.children[key] = NewFlatNode(sn.conf, sn.level+1)
 				newKeys = append(newKeys, key)
 			}
 		}

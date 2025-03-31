@@ -6,6 +6,51 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
+type BookListT struct {
+	Children []*BookT `json:"children"`
+}
+
+func (t *BookListT) Pack(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
+	if t == nil {
+		return 0
+	}
+	childrenOffset := flatbuffers.UOffsetT(0)
+	if t.Children != nil {
+		childrenLength := len(t.Children)
+		childrenOffsets := make([]flatbuffers.UOffsetT, childrenLength)
+		for j := 0; j < childrenLength; j++ {
+			childrenOffsets[j] = t.Children[j].Pack(builder)
+		}
+		BookListStartChildrenVector(builder, childrenLength)
+		for j := childrenLength - 1; j >= 0; j-- {
+			builder.PrependUOffsetT(childrenOffsets[j])
+		}
+		childrenOffset = builder.EndVector(childrenLength)
+	}
+	BookListStart(builder)
+	BookListAddChildren(builder, childrenOffset)
+	return BookListEnd(builder)
+}
+
+func (rcv *BookList) UnPackTo(t *BookListT) {
+	childrenLength := rcv.ChildrenLength()
+	t.Children = make([]*BookT, childrenLength)
+	for j := 0; j < childrenLength; j++ {
+		x := Book{}
+		rcv.Children(&x, j)
+		t.Children[j] = x.UnPack()
+	}
+}
+
+func (rcv *BookList) UnPack() *BookListT {
+	if rcv == nil {
+		return nil
+	}
+	t := &BookListT{}
+	rcv.UnPackTo(t)
+	return t
+}
+
 type BookList struct {
 	_tab flatbuffers.Table
 }

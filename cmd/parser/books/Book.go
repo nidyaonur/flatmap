@@ -6,6 +6,100 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
+type BookT struct {
+	Id uint64 `json:"id"`
+	Title string `json:"title"`
+	PageCount uint64 `json:"page_count"`
+	Rate float64 `json:"rate"`
+	ListField []string `json:"list_field"`
+	ScalarListField []uint64 `json:"scalar_list_field"`
+	AdType AdType `json:"ad_type"`
+	AdTypeList []AdType `json:"ad_type_list"`
+}
+
+func (t *BookT) Pack(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
+	if t == nil {
+		return 0
+	}
+	titleOffset := flatbuffers.UOffsetT(0)
+	if t.Title != "" {
+		titleOffset = builder.CreateString(t.Title)
+	}
+	listFieldOffset := flatbuffers.UOffsetT(0)
+	if t.ListField != nil {
+		listFieldLength := len(t.ListField)
+		listFieldOffsets := make([]flatbuffers.UOffsetT, listFieldLength)
+		for j := 0; j < listFieldLength; j++ {
+			listFieldOffsets[j] = builder.CreateString(t.ListField[j])
+		}
+		BookStartListFieldVector(builder, listFieldLength)
+		for j := listFieldLength - 1; j >= 0; j-- {
+			builder.PrependUOffsetT(listFieldOffsets[j])
+		}
+		listFieldOffset = builder.EndVector(listFieldLength)
+	}
+	scalarListFieldOffset := flatbuffers.UOffsetT(0)
+	if t.ScalarListField != nil {
+		scalarListFieldLength := len(t.ScalarListField)
+		BookStartScalarListFieldVector(builder, scalarListFieldLength)
+		for j := scalarListFieldLength - 1; j >= 0; j-- {
+			builder.PrependUint64(t.ScalarListField[j])
+		}
+		scalarListFieldOffset = builder.EndVector(scalarListFieldLength)
+	}
+	adTypeListOffset := flatbuffers.UOffsetT(0)
+	if t.AdTypeList != nil {
+		adTypeListLength := len(t.AdTypeList)
+		BookStartAdTypeListVector(builder, adTypeListLength)
+		for j := adTypeListLength - 1; j >= 0; j-- {
+			builder.PrependByte(byte(t.AdTypeList[j]))
+		}
+		adTypeListOffset = builder.EndVector(adTypeListLength)
+	}
+	BookStart(builder)
+	BookAddId(builder, t.Id)
+	BookAddTitle(builder, titleOffset)
+	BookAddPageCount(builder, t.PageCount)
+	BookAddRate(builder, t.Rate)
+	BookAddListField(builder, listFieldOffset)
+	BookAddScalarListField(builder, scalarListFieldOffset)
+	BookAddAdType(builder, t.AdType)
+	BookAddAdTypeList(builder, adTypeListOffset)
+	return BookEnd(builder)
+}
+
+func (rcv *Book) UnPackTo(t *BookT) {
+	t.Id = rcv.Id()
+	t.Title = string(rcv.Title())
+	t.PageCount = rcv.PageCount()
+	t.Rate = rcv.Rate()
+	listFieldLength := rcv.ListFieldLength()
+	t.ListField = make([]string, listFieldLength)
+	for j := 0; j < listFieldLength; j++ {
+		t.ListField[j] = string(rcv.ListField(j))
+	}
+	scalarListFieldLength := rcv.ScalarListFieldLength()
+	t.ScalarListField = make([]uint64, scalarListFieldLength)
+	for j := 0; j < scalarListFieldLength; j++ {
+		t.ScalarListField[j] = rcv.ScalarListField(j)
+	}
+	t.AdType = rcv.AdType()
+	adTypeListLength := rcv.AdTypeListLength()
+	t.AdTypeList = make([]AdType, adTypeListLength)
+	for j := 0; j < adTypeListLength; j++ {
+		t.AdTypeList[j] = rcv.AdTypeList(j)
+	}
+}
+
+func (rcv *Book) UnPack() *BookT {
+	if rcv == nil {
+		return nil
+	}
+	t := &BookT{}
+	rcv.UnPackTo(t)
+	return t
+}
+
 type Book struct {
 	_tab flatbuffers.Table
 }
@@ -140,8 +234,42 @@ func (rcv *Book) MutateAdType(n AdType) bool {
 	return rcv._tab.MutateByteSlot(16, byte(n))
 }
 
+func (rcv *Book) AdTypeList(j int) AdType {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
+	if o != 0 {
+		a := rcv._tab.Vector(o)
+		return AdType(rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1)))
+	}
+	return 0
+}
+
+func (rcv *Book) AdTypeListLength() int {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
+	if o != 0 {
+		return rcv._tab.VectorLen(o)
+	}
+	return 0
+}
+
+func (rcv *Book) AdTypeListBytes() []byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
+	if o != 0 {
+		return rcv._tab.ByteVector(o + rcv._tab.Pos)
+	}
+	return nil
+}
+
+func (rcv *Book) MutateAdTypeList(j int, n AdType) bool {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
+	if o != 0 {
+		a := rcv._tab.Vector(o)
+		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), byte(n))
+	}
+	return false
+}
+
 func BookStart(builder *flatbuffers.Builder) {
-	builder.StartObject(7)
+	builder.StartObject(8)
 }
 func BookAddId(builder *flatbuffers.Builder, id uint64) {
 	builder.PrependUint64Slot(0, id, 0)
@@ -169,6 +297,12 @@ func BookStartScalarListFieldVector(builder *flatbuffers.Builder, numElems int) 
 }
 func BookAddAdType(builder *flatbuffers.Builder, adType AdType) {
 	builder.PrependByteSlot(6, byte(adType), 0)
+}
+func BookAddAdTypeList(builder *flatbuffers.Builder, adTypeList flatbuffers.UOffsetT) {
+	builder.PrependUOffsetTSlot(7, flatbuffers.UOffsetT(adTypeList), 0)
+}
+func BookStartAdTypeListVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
+	return builder.StartVector(1, numElems, 1)
 }
 func BookEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

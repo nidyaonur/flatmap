@@ -4,11 +4,17 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-type VType interface {
+type VTypeT interface {
+	Pack(builder *flatbuffers.Builder) flatbuffers.UOffsetT
+}
+
+type VType[VT VTypeT] interface {
 	Init(buf []byte, i flatbuffers.UOffsetT)
 	Table() flatbuffers.Table
+	UnPackTo(t VT)
+	UnPack() VT
 }
-type VListType[V VType] interface {
+type VListType[VT VTypeT, V VType[VT]] interface {
 	Init(buf []byte, i flatbuffers.UOffsetT)
 	Children(V, int) bool
 	ChildrenLength() int

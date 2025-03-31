@@ -3,7 +3,7 @@ package flatmap
 import "fmt"
 
 // Get retrieves a value from the shard tree given a set of keys. DO NOT PASS A NIL VALUE
-func (sn *FlatNode[K, V, VList]) Get(keys []K, v V) bool {
+func (sn *FlatNode[K, VT, V, VList]) Get(keys []K, v V) bool {
 	// example call Get([]uint64{mp_id: 1, cmp_id: 2, c_id: 3})
 	if len(keys) == 0 {
 		return false
@@ -34,7 +34,7 @@ func (sn *FlatNode[K, V, VList]) Get(keys []K, v V) bool {
 }
 
 // Get retrieves a value from the shard tree given a set of keys.
-func (sn *FlatNode[K, V, VList]) GetBatch(keys []K) (vList VList, found bool) {
+func (sn *FlatNode[K, VT, V, VList]) GetBatch(keys []K) (vList VList, found bool) {
 	// example call Get([]uint64{mp_id: 1, cmp_id: 2, c_id: 3})
 	if len(keys) == 0 {
 		return
@@ -52,7 +52,7 @@ func (sn *FlatNode[K, V, VList]) GetBatch(keys []K) (vList VList, found bool) {
 	return sn.Vlist, true
 }
 
-func (sn *FlatNode[K, V, VList]) Set(v DeltaItem[K]) error {
+func (sn *FlatNode[K, VT, V, VList]) Set(v DeltaItem[K]) error {
 	if len(v.Keys) == 0 {
 		return fmt.Errorf("no keys provided")
 	}
@@ -68,7 +68,7 @@ func (sn *FlatNode[K, V, VList]) Set(v DeltaItem[K]) error {
 	return nil
 }
 
-func (sn *FlatNode[K, V, VList]) Delete(keys []K) {
+func (sn *FlatNode[K, VT, V, VList]) Delete(keys []K) {
 	if len(keys) == 0 {
 		return
 	}

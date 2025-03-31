@@ -24,7 +24,7 @@ func main() {
 
 }
 
-func constructFlatBookMap(testSize int) (*flatmap.FlatNode[int, *books.Book, *books.BookList], error) {
+func constructFlatBookMap(testSize int) (*flatmap.FlatNode[int, *books.BookT, *books.Book, *books.BookList], error) {
 	// builder := flatbuffers.NewBuilder(1024)
 	// strOffsets := make(map[string]flatbuffers.UOffsetT)
 	// keys := make([][]int, testSize)
@@ -62,7 +62,7 @@ func constructFlatBookMap(testSize int) (*flatmap.FlatNode[int, *books.Book, *bo
 	}
 	timeStart := time.Now()
 
-	flatConf := &flatmap.FlatConfig[int, *books.Book, *books.BookList]{
+	flatConf := &flatmap.FlatConfig[int, *books.BookT, *books.Book, *books.BookList]{
 		UpdateSeconds: 15,
 		NewV: func() *books.Book {
 			return &books.Book{}
@@ -74,15 +74,15 @@ func constructFlatBookMap(testSize int) (*flatmap.FlatNode[int, *books.Book, *bo
 			id := int(b.Id())
 			return []int{id % 100, id}
 		},
-		EnumByteGetter: books.EnumByteGetter[*books.Book],
+		// EnumByteGetter: books.EnumByteGetter[*books.Book],
 	}
-	flatMap := flatmap.NewFlatNode(flatConf, books.Tables, 0)
+	flatMap := flatmap.NewFlatNode(flatConf, 0)
 	flatMap.FeedDeltaBulk(deltaItems)
 	fmt.Println("Construc time:", time.Since(timeStart))
 	return flatMap, nil
 }
 
-func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList], testSize int) {
+func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.BookT, *books.Book, *books.BookList], testSize int) {
 	// timeStart := time.Now()
 	wg := &sync.WaitGroup{}
 	for i := 0; i < 10; i++ {
@@ -132,7 +132,7 @@ func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList
 				if adType != books.AdType(1) {
 					fmt.Println("Failed to get ad type:", j, adType)
 				} else {
-					fmt.Println("Ad type:", adType)
+					// fmt.Println("Ad type:", adType)
 				}
 			}
 			wg.Done()
@@ -142,7 +142,7 @@ func readFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList
 	wg.Wait()
 }
 
-func writeFlatBookMap(flatMap *flatmap.FlatNode[int, *books.Book, *books.BookList], testSize int) {
+func writeFlatBookMap(flatMap *flatmap.FlatNode[int, *books.BookT, *books.Book, *books.BookList], testSize int) {
 	// timeStart := time.Now()
 	wg := &sync.WaitGroup{}
 

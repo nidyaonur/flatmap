@@ -14,6 +14,7 @@ table Book {
     list_field: [string];
     scalar_list_field: [ulong];
     ad_type: AdType;
+    ad_type_list: [AdType];
 }
 
 table BookList {
