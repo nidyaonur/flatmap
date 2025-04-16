@@ -6,51 +6,12 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-// CallbackConfig holds functions to create new V/VList values as well as getter/setter functions.
-// (Note: for enums we treat them as int8.)
-type FlatConfig[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] struct {
-	// Public fields
-	NewV            func() V
-	NewVList        func() VList
-	GetKeysFromV    func(v V) []K
-	CheckVForDelete func(v V) bool
-	UpdateSeconds   int
+type SnapshotMode int
 
-	// Private fields
-	fieldCount   int
-	tableConfigs map[string][]FieldConfig
-	// EnumByteGetter func(enumName string, getter interface{}) (func(V) byte, error)
-	vName string
-
-	// // Sorry for the long list of fields. We need to store all the getters for each field :(
-	// BoolGetters        map[string]func(v V) bool
-	// ByteGetters        map[string]func(v V) byte
-	// Int8Getters        map[string]func(v V) int8 // for enums
-	// Int16Getters       map[string]func(v V) int16
-	// Int32Getters       map[string]func(v V) int32
-	// Int64Getters       map[string]func(v V) int64
-	// Uint8Getters       map[string]func(v V) uint8
-	// Uint16Getters      map[string]func(v V) uint16
-	// Uint32Getters      map[string]func(v V) uint32
-	// Uint64Getters      map[string]func(v V) uint64
-	// Float32Getters     map[string]func(v V) float32
-	// Float64Getters     map[string]func(v V) float64
-	// StringGetters      map[string]func(v V) []byte
-	// BoolListGetters    map[string]func(v V, idx int) bool
-	// ByteListGetters    map[string]func(v V, idx int) byte
-	// Int8ListGetters    map[string]func(v V, idx int) int8
-	// Int16ListGetters   map[string]func(v V, idx int) int16
-	// Int32ListGetters   map[string]func(v V, idx int) int32
-	// Int64ListGetters   map[string]func(v V, idx int) int64
-	// Uint8ListGetters   map[string]func(v V, idx int) uint8
-	// Uint16ListGetters  map[string]func(v V, idx int) uint16
-	// Uint32ListGetters  map[string]func(v V, idx int) uint32
-	// Uint64ListGetters  map[string]func(v V, idx int) uint64
-	// Float32ListGetters map[string]func(v V, idx int) float32
-	// Float64ListGetters map[string]func(v V, idx int) float64
-	// StringListGetters  map[string]func(v V, idx int) []byte
-	// LengthGetters      map[string]func(v V) int
-}
+const (
+	SnapshotModeConsumer SnapshotMode = iota // Consumer mode: means it will maintain snapshots on update and will accept snapshots from outside
+	SnapshotModeProducer                     // Producer mode: means it will not maintain snapshots on update and will not produce snapshots
+)
 
 // FlatNode represents a node in the sharded map/tree structure.
 type FlatNode[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] struct {
@@ -60,170 +21,74 @@ type FlatNode[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] stru
 	// The level of the node in the shard tree
 	level int
 
-	// FieldCount int
-
-	// Children in the shard tree keyed by hashes
+	// Children in the shard tree keyed by hashes - only allocated for non-leaf nodes
 	children map[K]*FlatNode[K, VT, V, VList]
 
 	// Triple buffer containing read/write/backup buffers
-	ReadBuffer   []byte
-	Vlist        VList
-	WriteBuffer  []byte
-	BackupBuffer []byte
+	ReadBuffer   []byte // Stores current data for reading
+	Vlist        VList  // Reference to decoded list for faster access
+	WriteBuffer  []byte // Buffer for building new content
+	BackupBuffer []byte // Used for rotation to minimize allocations
 	Builder      *flatbuffers.Builder
 
 	// Metadata for reads, e.g. storing offsets/sizes of items
 	indexes map[K]int
 
+	// Use pointer for slices that may be empty much of the time
 	pendingDelta []DeltaItem[K]
+	pendingKeys  map[K]struct{}
 
-	rwMutex          sync.RWMutex
 	initializationWG *sync.WaitGroup
 
-	deleted map[K]bool
+	// Use pointer type for optional/sparse data
+	shardSnapshot *ShardSnapshot[K]
+
+	// Use a more efficient mutex implementation
+	rwMutex sync.RWMutex
+
+	// For deleted entries tracking
+	deleted map[K]struct{}
 
 	conf *FlatConfig[K, VT, V, VList]
 }
 
 func NewFlatNode[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]](
 	conf *FlatConfig[K, VT, V, VList],
-	// tableConfigs map[string][]map[string]string,
 	level int,
 ) *FlatNode[K, VT, V, VList] {
-	// if tableConfigs != nil {
-	// 	structuredTableConfigs := make(map[string][]FieldConfig)
-	// 	for k, v := range tableConfigs {
-	// 		fc := make([]FieldConfig, len(v))
-	// 		for i, f := range v {
-	// 			fc[i] = FieldConfig{
-	// 				Name:         f["name"],
-	// 				Type:         GetTypeEnum(f["type"]),
-	// 				DefaultValue: f["defaultValue"],
-	// 				Meta:         f["meta"],
-	// 				EnumName:     f["enumName"],
-	// 			}
-	// 		}
-	// 		structuredTableConfigs[k] = fc
-	// 	}
-	// 	conf.tableConfigs = structuredTableConfigs
-	// }
+	// Initialize only the required fields based on node type
 	sn := &FlatNode[K, VT, V, VList]{
-		children:         make(map[K]*FlatNode[K, VT, V, VList]),
-		indexes:          make(map[K]int),
 		level:            level,
 		conf:             conf,
 		rwMutex:          sync.RWMutex{},
 		initializationWG: &sync.WaitGroup{},
-		// FieldCount:       conf.fieldCount,
+		pendingDelta:     make([]DeltaItem[K], 0, 16), // Provide initial capacity
+		pendingKeys:      make(map[K]struct{}, 16),    // Provide initial capacity
+		// Initialize the builder with a default size
+
+		// Allocate maps lazily when they're needed
+		indexes: make(map[K]int),
 	}
 
+	// Start periodic update in a separate goroutine
 	go sn.PeriodicUpdate()
-	// sn.InitializeReceiversWithReflect()
-	// if sn.level == 0 {
-	// 	err := sn.FillGettersWithReflect()
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// }
-	// sn.FillInitialData(conf.InitialBuffer, conf.InitialKeys, conf.keyIndexes)
 	return sn
 }
 
-// func (sn *FlatNode[K, V, VList]) FillInitialData(initialBuffer []byte, initialKeys [][]K, keyIndexes []int) error {
-// 	if len(initialBuffer) == 0 {
-// 		return nil
-// 	}
-// 	keys := initialKeys[0]
-// 	sn.isLeaf = sn.level+1 == len(keys)
-// 	traverseKeyIndexes := false
-// 	traverseLen := len(initialKeys)
-// 	if len(keyIndexes) != 0 {
-// 		traverseKeyIndexes = true
-// 		traverseLen = len(keyIndexes)
-// 	}
-// 	if sn.isLeaf {
-// 		sn.initializationWG.Add(1)
-// 		go func() {
-// 			// Initialize buffer
-// 			// sn.ReadBuffer = bytes.NewBuffer(make([]byte, 0, 1024))
-// 			// sn.WriteBuffer = bytes.NewBuffer(make([]byte, 0, 1024))
-// 			indexes := make(map[K]int64)
-// 			sn.Builder = flatbuffers.NewBuilder(1024 * traverseLen)
+// EnsureCapacity ensures that the node has adequate capacity for its data structures
+func (sn *FlatNode[K, VT, V, VList]) EnsureCapacity() {
+	// Initialize children map for non-leaf nodes only when needed
+	if sn.nodeType == NodeNonLeaf && sn.children == nil {
+		sn.children = make(map[K]*FlatNode[K, VT, V, VList])
+	}
 
-// 			listVector := sn.GetRootAsVList(initialBuffer)
-// 			vList := make([]V, traverseLen)
-
-// 			// Preset all String values
-// 			strOffsets := make(map[string]flatbuffers.UOffsetT)
-// 			for i := 0; i < traverseLen; i++ {
-// 				vObj := sn.Callbacks.NewV() // TODO: find a way to reuse the object
-// 				// Serialize the value
-// 				index := i
-// 				if traverseKeyIndexes {
-// 					index = keyIndexes[i]
-// 				}
-// 				got := listVector.Children(vObj, index)
-// 				if !got {
-// 					continue
-// 				}
-// 				sn.FillStrOffsets(vObj, strOffsets, sn.TableConfigs[sn.VName])
-
-// 				vList[i] = vObj
-// 			}
-// 			vectorOffsetsMapList := sn.FillVectorOffsetsMap(vList, strOffsets)
-// 			vOffsets := make([]flatbuffers.UOffsetT, len(vList))
-// 			for i, v := range vList {
-// 				vOffsets[i] = sn.FillVFields(v, strOffsets, vectorOffsetsMapList[i])
-// 				index := i
-// 				if traverseKeyIndexes {
-// 					index = keyIndexes[i]
-// 				}
-// 				indexes[initialKeys[index][sn.level]] = int64(i) // get the key from the initial keys using the mapping from keyIndexes
-// 			}
-// 			sn.VListStartChildrenVector(sn.Builder, len(vOffsets))
-// 			for i := len(vOffsets) - 1; i >= 0; i-- {
-// 				sn.Builder.PrependUOffsetT(vOffsets[i])
-// 			}
-// 			vVector := sn.Builder.EndVector(len(vOffsets))
-// 			sn.VListStart(sn.Builder)
-// 			sn.VListAddChildren(sn.Builder, vVector)
-// 			vListOffset := sn.End(sn.Builder)
-
-// 			sn.Builder.Finish(vListOffset)
-// 			sn.ReadBuffer = sn.Builder.FinishedBytes()
-// 			sn.indexes = indexes
-// 			sn.Vlist = sn.GetRootAsVList(sn.ReadBuffer)
-// 			sn.initializationWG.Done()
-// 		}()
-
-// 	} else {
-// 		// group the data by the next level of keys
-// 		groupedData := make(map[K][]int)
-// 		for i := 0; i < traverseLen; i++ {
-// 			index := i
-// 			if traverseKeyIndexes {
-// 				index = keyIndexes[i]
-// 			}
-// 			groupedData[initialKeys[index][sn.level]] = append(groupedData[initialKeys[index][sn.level]], index)
-// 		}
-// 		for key := range groupedData {
-// 			childConfig := FlatConfig[K, V, VList]{
-// 				Level:         sn.level + 1,
-// 				InitialBuffer: initialBuffer,
-// 				InitialKeys:   initialKeys,
-// 				keyIndexes:    groupedData[key],
-// 				UpdateSeconds: sn.UpdateSeconds,
-// 				Callbacks:     sn.Callbacks,
-// 				parentWg:      sn.initializationWG,
-// 				TableConfigs:  sn.TableConfigs,
-// 				vName:         sn.VName,
-// 				fieldCount:    sn.FieldCount,
-// 			}
-// 			sn.children[key] = NewFlatNode(childConfig, nil)
-// 		}
-// 	}
-// 	return nil
-// }
+	// Initialize other maps only when needed
+	if sn.nodeType == NodeLeaf {
+		if sn.deleted == nil {
+			sn.deleted = make(map[K]struct{})
+		}
+	}
+}
 
 func (sn *FlatNode[K, VT, V, VList]) GetRootAsV(buf []byte, x V) {
 	n := flatbuffers.GetUOffsetT(buf[0:])
@@ -235,10 +100,6 @@ func (sn *FlatNode[K, VT, V, VList]) GetRootAsVList(buf []byte) VList {
 	x := sn.conf.NewVList()
 	x.Init(buf, n)
 	return x
-}
-
-func (sn *FlatNode[K, VT, V, VList]) VStart(builder *flatbuffers.Builder) {
-	builder.StartObject(sn.conf.fieldCount)
 }
 
 func (sn *FlatNode[K, VT, V, VList]) VListStart(builder *flatbuffers.Builder) {

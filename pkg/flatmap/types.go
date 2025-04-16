@@ -25,10 +25,19 @@ type DeltaItem[K comparable] struct {
 	Data []byte
 }
 
-type FieldConfig struct {
-	Name         string
-	Type         TypeEnum
-	DefaultValue string
-	Meta         string
-	EnumName     string
+// (Note: for enums we treat them as int8.)
+type FlatConfig[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] struct {
+	// Public fields
+	NewV            func() V
+	NewVList        func() VList
+	GetKeysFromV    func(v V) []K
+	CheckVForDelete func(v V) bool
+	UpdateSeconds   uint
+	SnapShotMode    SnapshotMode
+}
+
+type ShardSnapshot[K comparable] struct {
+	Path   []K
+	Keys   []K
+	Buffer []byte
 }

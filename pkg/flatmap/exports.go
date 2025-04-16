@@ -36,7 +36,7 @@ func (sn *FlatNode[K, VT, V, VList]) Get(keys []K, v V) bool {
 // Get retrieves a value from the shard tree given a set of keys.
 func (sn *FlatNode[K, VT, V, VList]) GetBatch(keys []K) (vList VList, found bool) {
 	// example call Get([]uint64{mp_id: 1, cmp_id: 2, c_id: 3})
-	if len(keys) == 0 {
+	if len(keys) == 0 && sn.nodeType != NodeLeaf {
 		return
 	}
 	if sn.nodeType == NodeUndecided {
@@ -50,6 +50,43 @@ func (sn *FlatNode[K, VT, V, VList]) GetBatch(keys []K) (vList VList, found bool
 		return child.GetBatch(keys)
 	}
 	return sn.Vlist, true
+}
+
+func (sn *FlatNode[K, VT, V, VList]) GetSnapshot(keys []K, deepCopy bool) *ShardSnapshot[K] {
+	if len(keys) == 0 {
+		return nil
+	}
+	if sn.nodeType != NodeLeaf {
+		child, ok := sn.children[keys[sn.level]]
+		if ok {
+			return child.GetSnapshot(keys, deepCopy)
+		}
+	}
+	sn.rwMutex.RLock()
+	defer sn.rwMutex.RUnlock()
+	// check if shard is not empty
+	if len(sn.indexes) == 0 {
+		return nil
+	}
+	keyList := make([]K, 0, len(sn.indexes))
+	for k := range sn.indexes {
+		keyList = append(keyList, k)
+	}
+	if !deepCopy {
+		return &ShardSnapshot[K]{
+			Path:   keys,
+			Keys:   keyList,
+			Buffer: sn.ReadBuffer, // This will be valid until it will be cycled to -> BackupBuffer -> WriteBuffer
+		}
+	}
+	dest := make([]byte, len(sn.ReadBuffer))
+	copy(dest, sn.ReadBuffer)
+	return &ShardSnapshot[K]{
+		Path:   keys,
+		Keys:   keyList,
+		Buffer: dest,
+	}
+
 }
 
 func (sn *FlatNode[K, VT, V, VList]) Set(v DeltaItem[K]) error {
@@ -68,6 +105,25 @@ func (sn *FlatNode[K, VT, V, VList]) Set(v DeltaItem[K]) error {
 	return nil
 }
 
+func (sn *FlatNode[K, VT, V, VList]) SetSnapshot(v *ShardSnapshot[K]) error {
+	if len(v.Path) == 0 {
+		return fmt.Errorf("no keys provided")
+	}
+	if sn.conf.SnapShotMode == SnapshotModeProducer {
+		return fmt.Errorf("snapshot mode is producer")
+	}
+	if sn.nodeType == NodeNonLeaf {
+		child, ok := sn.children[v.Path[sn.level]]
+		if ok {
+			return child.SetSnapshot(v)
+		}
+	}
+	sn.rwMutex.Lock()
+	sn.shardSnapshot = v
+	sn.rwMutex.Unlock()
+	return nil
+}
+
 func (sn *FlatNode[K, VT, V, VList]) Delete(keys []K) {
 	if len(keys) == 0 {
 		return
@@ -77,7 +133,7 @@ func (sn *FlatNode[K, VT, V, VList]) Delete(keys []K) {
 			return
 		}
 		sn.rwMutex.Lock()
-		sn.deleted[keys[sn.level]] = true
+		sn.deleted[keys[sn.level]] = struct{}{}
 		sn.rwMutex.Unlock()
 		return
 	}

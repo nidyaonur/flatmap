@@ -1,6 +1,5 @@
 namespace books;
 
-enum Color : ubyte { Red = 0, Green, Blue }
 
 enum Status : ubyte { UNKNOWN = 0, ACTIVE, PAUSED, DELETED, ARCHIVED}
 
@@ -13,8 +12,7 @@ table Book {
     rate: double;
     list_field: [string];
     scalar_list_field: [ulong];
-    ad_type: AdType;
-    ad_type_list: [AdType];
+
 }
 
 table BookList {

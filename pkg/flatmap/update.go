@@ -13,7 +13,6 @@ func (sn *FlatNode[K, VT, V, VList]) PeriodicUpdate() {
 			continue
 		}
 		sn.Update(nil)
-
 	}
 }
 
@@ -27,6 +26,11 @@ func (sn *FlatNode[K, VT, V, VList]) FeedDeltaBulk(deltaList []DeltaItem[K]) {
 func (sn *FlatNode[K, VT, V, VList]) DecideNodeType() {
 	if sn.nodeType == NodeUndecided { //decide on whether or not this should be leaf
 		var keyLen int
+		if sn.shardSnapshot != nil {
+			sn.nodeType = NodeLeaf
+			sn.EnsureCapacity()
+			return
+		}
 		if len(sn.pendingDelta) == 0 {
 			return
 		}
@@ -41,15 +45,43 @@ func (sn *FlatNode[K, VT, V, VList]) DecideNodeType() {
 		} else {
 			sn.nodeType = NodeNonLeaf
 		}
+		// Initialize appropriate data structures based on node type
+		sn.EnsureCapacity()
+	}
+}
+
+func (sn *FlatNode[K, VT, V, VList]) InitializeWithGroupedShardBuffers(snapshots []*ShardSnapshot[K]) {
+	if sn.conf.SnapShotMode == SnapshotModeProducer {
+		return
+	}
+	for _, ss := range snapshots { // this would have been horrible before go 1.21
+		if sn.level == len(ss.Path) { // path contains the keys for the current level
+			sn.nodeType = NodeLeaf
+		} else {
+			sn.nodeType = NodeNonLeaf
+		}
+		if sn.nodeType == NodeNonLeaf {
+			if sn.children == nil {
+				sn.children = make(map[K]*FlatNode[K, VT, V, VList])
+			}
+			if _, ok := sn.children[ss.Path[sn.level]]; !ok {
+				sn.children[ss.Path[sn.level]] = NewFlatNode(sn.conf, sn.level+1)
+			}
+			sn.children[ss.Path[sn.level]].InitializeWithGroupedShardBuffers([]*ShardSnapshot[K]{ss})
+		} else {
+			sn.rwMutex.Lock()
+			defer sn.rwMutex.Unlock()
+			sn.shardSnapshot = ss
+		}
 	}
 }
 
 func (sn *FlatNode[K, VT, V, VList]) Update(bulkDelta []DeltaItem[K]) {
 	sn.rwMutex.Lock()
 	defer sn.rwMutex.Unlock()
-	if len(bulkDelta) != 0 {
-		sn.pendingDelta = append(sn.pendingDelta, bulkDelta...)
-	}
+
+	sn.appendBulkDeltaIfNeeded(bulkDelta)
+
 	// Decide Node type
 	sn.DecideNodeType()
 	if sn.nodeType == NodeUndecided { //There is no data to decide
@@ -60,136 +92,258 @@ func (sn *FlatNode[K, VT, V, VList]) Update(bulkDelta []DeltaItem[K]) {
 	// 1. this is a leaf node and the data is in the pending buffer to be written
 	// 2. this is an internal node there is no child node created for the specific key, and set method could not delegate the "data write" to the child node
 	if sn.nodeType == NodeLeaf {
-		// populate pending keys
-		var pendingKeys map[K]int = make(map[K]int, len(sn.pendingDelta))
-		for i := len(sn.pendingDelta) - 1; i >= 0; i-- { // to take the latest data when there are duplicates
-			if _, ok := pendingKeys[sn.pendingDelta[i].Keys[sn.level]]; ok {
-				continue
-			}
-			pendingKeys[sn.pendingDelta[i].Keys[sn.level]] = i
-		}
-		// if it is the first time, we need to initialize the buffers
-		var childrenLen int
-		if sn.Builder == nil {
-			sn.Builder = flatbuffers.NewBuilder(1024)
-			sn.ReadBuffer = make([]byte, 0, 1024)
-			sn.WriteBuffer = make([]byte, 0, 1024)
-			sn.BackupBuffer = make([]byte, 0, 1024)
-
-		} else {
-			childrenLen = sn.Vlist.ChildrenLength()
-		}
-
-		// reuse backup buffer
-		sn.Builder.Bytes = sn.WriteBuffer
-		sn.Builder.Reset()
-		// copy the read buffer to the write buffer
-		newIndexes := make(map[K]int, len(sn.pendingDelta)+childrenLen)
-		newOffsets := make([]flatbuffers.UOffsetT, 0, len(sn.pendingDelta)+childrenLen)
-		// vList := make([]V, 0, len(pendingKeys)+childrenLen)
-
-		// strOffsets := make(map[string]flatbuffers.UOffsetT)
-		// vFieldConfig := sn.conf.tableConfigs[sn.conf.vName]
-		var vt VT
-		var vObj V = sn.conf.NewV()
-		for i := 0; i < childrenLen; i++ { //TODO: assign to a variable
-			created := sn.Vlist.Children(vObj, i)
-			if !created {
-				// log.Println("Failed to create V object")
-				continue
-			}
-			keys := sn.conf.GetKeysFromV(vObj)
-			if _, ok := sn.deleted[keys[sn.level]]; ok {
-				continue
-			}
-			if _, ok := pendingKeys[keys[sn.level]]; ok {
-				continue
-			}
-			// vList = append(vList, vObj)
-			if len(newOffsets) == 0 {
-				vt = vObj.UnPack()
-			} else {
-				vObj.UnPackTo(vt)
-			}
-			newIndexes[keys[sn.level]] = len(newOffsets)
-			newOffsets = append(newOffsets, vt.Pack(sn.Builder))
-
-			// sn.FillStrOffsets(vObj, strOffsets, vFieldConfig)
-		}
-		// listVector := sn.GetRootAsVList(sn.pendingBuffer.Bytes())
-		deleteFuncSet := sn.conf.CheckVForDelete != nil
-		// vLen := len(vList)
-		for _, i := range pendingKeys {
-			delta := sn.pendingDelta[i]
-			sn.GetRootAsV(delta.Data, vObj)
-			if deleteFuncSet && sn.conf.CheckVForDelete(vObj) {
-				continue
-			}
-			if len(newOffsets) == 0 {
-				vt = vObj.UnPack()
-			} else {
-				vObj.UnPackTo(vt)
-			}
-			newIndexes[delta.Keys[sn.level]] = len(newOffsets)
-			newOffsets = append(newOffsets, vt.Pack(sn.Builder))
-
-			// vList = append(vList, vObj)
-			// sn.FillStrOffsets(vObj, strOffsets, vFieldConfig)
-			// fmt.Println(delta.Keys[sn.level])
-			// vLen++
-
-		}
-		// vectorOffsets := sn.FillVectorOffsetsMap(vList, strOffsets)
-		// vOffsets := make([]flatbuffers.UOffsetT, len(vList))
-		// for i, v := range vList {
-		// 	vOffsets[i] = sn.FillVFields(v, strOffsets, vectorOffsets[i])
-		// }
-
-		sn.VListStartChildrenVector(sn.Builder, len(newOffsets))
-		for i := len(newOffsets) - 1; i >= 0; i-- {
-			sn.Builder.PrependUOffsetT(newOffsets[i])
-		}
-		vVector := sn.Builder.EndVector(len(newOffsets))
-		sn.VListStart(sn.Builder)
-		sn.VListAddChildren(sn.Builder, vVector)
-		vListOffset := sn.End(sn.Builder)
-		sn.Builder.Finish(vListOffset)
-		oldRead := sn.ReadBuffer
-		sn.ReadBuffer = sn.Builder.FinishedBytes()
-		sn.WriteBuffer = sn.BackupBuffer
-		sn.BackupBuffer = oldRead
-		sn.indexes = newIndexes // TODO: we can reuse it in the same way as the triple buffer
-		sn.Vlist = sn.GetRootAsVList(sn.ReadBuffer)
-		sn.pendingDelta = make([]DeltaItem[K], 0)
-
+		sn.updateLeafNode()
 	} else {
-		// group the data by the next level of keys
-		groupedDelta := make(map[K][]DeltaItem[K])
-		for idx := range sn.pendingDelta {
-			delta := sn.pendingDelta[idx]
-			shardKey := delta.Keys[sn.level]
-			if _, ok := groupedDelta[shardKey]; !ok { //TODO: check if this is necessary
-				groupedDelta[shardKey] = make([]DeltaItem[K], 0)
-			}
-			groupedDelta[shardKey] = append(groupedDelta[shardKey], delta)
-		}
-		sn.pendingDelta = make([]DeltaItem[K], 0)
-		newKeys := []K{}
-		for key := range groupedDelta {
-			if _, ok := sn.children[key]; !ok {
-				sn.children[key] = NewFlatNode(sn.conf, sn.level+1)
-				newKeys = append(newKeys, key)
-			}
-		}
-		for _, key := range newKeys {
-			sn.initializationWG.Add(1)
-			go func(key K) {
-				sn.children[key].FeedDeltaBulk(groupedDelta[key])
-				sn.initializationWG.Done()
-			}(key)
-		}
+		sn.updateNonLeafNode()
+	}
+}
 
-		sn.initializationWG.Wait()
+func (sn *FlatNode[K, VT, V, VList]) appendBulkDeltaIfNeeded(bulkDelta []DeltaItem[K]) {
+	if len(bulkDelta) == 0 {
+		return
 	}
 
+	// Pre-allocate capacity if needed to avoid reallocations
+	if cap(sn.pendingDelta)-len(sn.pendingDelta) < len(bulkDelta) {
+		newCap := len(sn.pendingDelta) + len(bulkDelta)
+		newSlice := make([]DeltaItem[K], len(sn.pendingDelta), newCap)
+		copy(newSlice, sn.pendingDelta)
+		sn.pendingDelta = newSlice
+	}
+	sn.pendingDelta = append(sn.pendingDelta, bulkDelta...)
+}
+
+func (sn *FlatNode[K, VT, V, VList]) updateLeafNode() {
+	if sn.shardSnapshot != nil && sn.conf.SnapShotMode == SnapshotModeConsumer {
+		sn.initializeLeafFromSnapshot()
+	}
+
+	pendingKeys := sn.collectPendingKeys()
+
+	// if it is the first time, we need to initialize the buffers
+	var childrenLen int
+	if sn.Builder == nil {
+		sn.initializeBuffers(pendingKeys)
+	} else {
+		childrenLen = sn.Vlist.ChildrenLength()
+	}
+
+	// Process and update the data
+	sn.processLeafData(pendingKeys, childrenLen)
+}
+
+func (sn *FlatNode[K, VT, V, VList]) initializeLeafFromSnapshot() {
+	vList := sn.GetRootAsVList(sn.shardSnapshot.Buffer)
+	sn.Vlist = vList
+	sn.shardSnapshot = nil
+	sn.pendingDelta = make([]DeltaItem[K], 0, 16) // Provide initial capacity
+	sn.deleted = make(map[K]struct{})
+	for i, k := range sn.shardSnapshot.Keys {
+		sn.indexes[k] = i
+	}
+	sn.pendingKeys = make(map[K]struct{}, len(sn.shardSnapshot.Keys))
+	sn.ReadBuffer = sn.shardSnapshot.Buffer
+}
+
+func (sn *FlatNode[K, VT, V, VList]) collectPendingKeys() map[K]int {
+	expectedSize := len(sn.pendingDelta)
+	var pendingKeys map[K]int
+
+	// Create map with appropriate initial capacity
+	if expectedSize > 0 {
+		pendingKeys = make(map[K]int, expectedSize)
+	} else {
+		pendingKeys = make(map[K]int)
+	}
+
+	for i := len(sn.pendingDelta) - 1; i >= 0; i-- { // to take the latest data when there are duplicates
+		if _, ok := pendingKeys[sn.pendingDelta[i].Keys[sn.level]]; ok {
+			continue
+		}
+		pendingKeys[sn.pendingDelta[i].Keys[sn.level]] = i
+	}
+
+	return pendingKeys
+}
+
+func (sn *FlatNode[K, VT, V, VList]) initializeBuffers(pendingKeys map[K]int) {
+	// Size buffers according to expected data size
+	initialSize := max(1024, estimateBufferSize(len(pendingKeys)))
+	sn.Builder = flatbuffers.NewBuilder(initialSize)
+	sn.ReadBuffer = make([]byte, 0, initialSize)
+	sn.WriteBuffer = make([]byte, 0, initialSize)
+	sn.BackupBuffer = make([]byte, 0, initialSize)
+}
+
+func (sn *FlatNode[K, VT, V, VList]) processLeafData(pendingKeys map[K]int, childrenLen int) {
+	// reuse backup buffer
+	sn.Builder.Bytes = sn.WriteBuffer
+	sn.Builder.Reset()
+
+	// Estimate proper capacity for maps and slices
+	totalItems := len(pendingKeys) + childrenLen
+	newIndexes := make(map[K]int, totalItems)
+	newOffsets := make([]flatbuffers.UOffsetT, 0, totalItems)
+
+	// Process existing children first
+	sn.processExistingChildren(newIndexes, &newOffsets, childrenLen, pendingKeys)
+
+	// Then process pending deltas
+	sn.processPendingDeltas(newIndexes, &newOffsets, pendingKeys)
+
+	// Build and update the flatbuffer
+	sn.buildAndUpdateFlatBuffer(newIndexes, newOffsets)
+}
+
+func (sn *FlatNode[K, VT, V, VList]) processExistingChildren(
+	newIndexes map[K]int,
+	newOffsets *[]flatbuffers.UOffsetT,
+	childrenLen int,
+	pendingKeys map[K]int,
+) {
+	// Create a reusable object for VT rather than creating one per iteration
+	var vt VT
+	var vObj V = sn.conf.NewV()
+
+	for i := range childrenLen {
+		created := sn.Vlist.Children(vObj, i)
+		if !created {
+			continue
+		}
+		keys := sn.conf.GetKeysFromV(vObj)
+		if _, ok := sn.deleted[keys[sn.level]]; ok {
+			continue
+		}
+		if _, ok := pendingKeys[keys[sn.level]]; ok {
+			continue
+		}
+
+		if len(*newOffsets) == 0 {
+			vt = vObj.UnPack()
+		} else {
+			vObj.UnPackTo(vt)
+		}
+		newIndexes[keys[sn.level]] = len(*newOffsets)
+		*newOffsets = append(*newOffsets, vt.Pack(sn.Builder))
+	}
+}
+
+func (sn *FlatNode[K, VT, V, VList]) processPendingDeltas(
+	newIndexes map[K]int,
+	newOffsets *[]flatbuffers.UOffsetT,
+	pendingKeys map[K]int,
+) {
+	deleteFuncSet := sn.conf.CheckVForDelete != nil
+	var vt VT
+	var vObj V = sn.conf.NewV()
+
+	for _, i := range pendingKeys {
+		delta := sn.pendingDelta[i]
+		sn.GetRootAsV(delta.Data, vObj)
+		if deleteFuncSet && sn.conf.CheckVForDelete(vObj) {
+			continue
+		}
+		if len(*newOffsets) == 0 {
+			vt = vObj.UnPack()
+		} else {
+			vObj.UnPackTo(vt)
+		}
+		newIndexes[delta.Keys[sn.level]] = len(*newOffsets)
+		*newOffsets = append(*newOffsets, vt.Pack(sn.Builder))
+	}
+}
+
+func (sn *FlatNode[K, VT, V, VList]) buildAndUpdateFlatBuffer(
+	newIndexes map[K]int,
+	newOffsets []flatbuffers.UOffsetT,
+) {
+	sn.VListStartChildrenVector(sn.Builder, len(newOffsets))
+	for i := len(newOffsets) - 1; i >= 0; i-- {
+		sn.Builder.PrependUOffsetT(newOffsets[i])
+	}
+	vVector := sn.Builder.EndVector(len(newOffsets))
+	sn.VListStart(sn.Builder)
+	sn.VListAddChildren(sn.Builder, vVector)
+	vListOffset := sn.End(sn.Builder)
+	sn.Builder.Finish(vListOffset)
+
+	// Update buffers with properly sized allocations if needed
+	finishedBytes := sn.Builder.FinishedBytes()
+	finishedSize := len(finishedBytes)
+
+	// Grow buffers if they're significantly smaller than needed
+	if cap(sn.BackupBuffer) < finishedSize*2/3 {
+		newSize := finishedSize * 2
+		sn.BackupBuffer = make([]byte, 0, newSize)
+	}
+
+	oldRead := sn.ReadBuffer
+	sn.ReadBuffer = finishedBytes
+	sn.WriteBuffer = sn.BackupBuffer
+	sn.BackupBuffer = oldRead
+
+	sn.indexes = newIndexes
+	sn.Vlist = sn.GetRootAsVList(sn.ReadBuffer)
+
+	// Clear without reallocation
+	sn.pendingDelta = sn.pendingDelta[:0]
+}
+
+func (sn *FlatNode[K, VT, V, VList]) updateNonLeafNode() {
+	// Group and distribute deltas to child nodes
+	groupedDeltas := sn.groupDeltasByNextLevelKey()
+
+	// Clear pending deltas early
+	sn.pendingDelta = sn.pendingDelta[:0]
+
+	// Create or update child nodes
+	newKeys := sn.prepareChildNodes(groupedDeltas)
+
+	// Process child nodes in parallel
+	sn.processChildNodesInParallel(newKeys, groupedDeltas)
+}
+
+func (sn *FlatNode[K, VT, V, VList]) groupDeltasByNextLevelKey() map[K][]DeltaItem[K] {
+	groupedDelta := make(map[K][]DeltaItem[K])
+	for idx := range sn.pendingDelta {
+		delta := sn.pendingDelta[idx]
+		shardKey := delta.Keys[sn.level]
+		if _, ok := groupedDelta[shardKey]; !ok {
+			// Estimate typical group size to reduce reallocations
+			groupedDelta[shardKey] = make([]DeltaItem[K], 0, 4)
+		}
+		groupedDelta[shardKey] = append(groupedDelta[shardKey], delta)
+	}
+	return groupedDelta
+}
+
+func (sn *FlatNode[K, VT, V, VList]) prepareChildNodes(groupedDeltas map[K][]DeltaItem[K]) []K {
+	// Pre-allocate newKeys slice based on expected number of new children
+	numNewKeys := 0
+	for key := range groupedDeltas {
+		if _, ok := sn.children[key]; !ok {
+			numNewKeys++
+		}
+	}
+
+	newKeys := make([]K, 0, numNewKeys)
+	for key := range groupedDeltas {
+		if _, ok := sn.children[key]; !ok {
+			sn.children[key] = NewFlatNode(sn.conf, sn.level+1)
+			newKeys = append(newKeys, key)
+		}
+	}
+	return newKeys
+}
+
+func (sn *FlatNode[K, VT, V, VList]) processChildNodesInParallel(newKeys []K, groupedDeltas map[K][]DeltaItem[K]) {
+	for _, key := range newKeys {
+		sn.initializationWG.Add(1)
+		go func(key K) {
+			sn.children[key].FeedDeltaBulk(groupedDeltas[key])
+			sn.initializationWG.Done()
+		}(key)
+	}
+
+	sn.initializationWG.Wait()
 }
