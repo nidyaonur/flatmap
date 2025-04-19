@@ -34,6 +34,8 @@ type FlatConfig[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] st
 	CheckVForDelete func(v V) bool
 	UpdateSeconds   uint
 	SnapShotMode    SnapshotMode
+	Logger          Logger
+	LogLevel        LogLevel
 }
 
 type ShardSnapshot[K comparable] struct {

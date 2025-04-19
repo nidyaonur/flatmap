@@ -69,6 +69,9 @@ func NewFlatNode[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]](
 		// Allocate maps lazily when they're needed
 		indexes: make(map[K]int),
 	}
+	if conf.Logger == nil {
+		conf.Logger = &noLogger{}
+	}
 
 	// Start periodic update in a separate goroutine
 	go sn.PeriodicUpdate()

@@ -284,6 +284,19 @@ func (sn *FlatNode[K, VT, V, VList]) buildAndUpdateFlatBuffer(
 
 	sn.indexes = newIndexes
 	sn.Vlist = sn.GetRootAsVList(sn.ReadBuffer)
+	// If the finished buffer is %75 or more full(1.5GB), indicate that
+	if len(newIndexes) > 0 { // 1.5GB
+		firstElem := sn.conf.NewV()
+		sn.Vlist.Children(firstElem, 0)
+		keys := sn.conf.GetKeysFromV(firstElem)
+		floatSize := float64(finishedSize) / (1024 * 1024 * 1024)
+		logLevel := InfoLevel
+		if floatSize > 1.5 { // Crash if we go over 2GB
+			logLevel = WarnLevel
+		}
+		sn.logf(logLevel, "Finished bytes size: %.2f GB, level: %d, element count: %d, keys: %v\n",
+			floatSize, sn.level, len(newIndexes), keys[:sn.level])
+	}
 
 	// Clear without reallocation
 	sn.pendingDelta = sn.pendingDelta[:0]
