@@ -202,10 +202,10 @@ func (sn *FlatNode[K, VT, V, VList]) processLeafData(pendingKeys map[K]int, chil
 	newOffsets := make([]flatbuffers.UOffsetT, 0, totalItems)
 
 	// Process existing children first
-	sn.processExistingChildren(newIndexes, newOffsets, childrenLen, pendingKeys)
+	newIndexes, newOffsets = sn.processExistingChildren(newIndexes, newOffsets, childrenLen, pendingKeys)
 
 	// Then process pending deltas
-	sn.processPendingDeltas(newIndexes, newOffsets, pendingKeys)
+	newIndexes, newOffsets = sn.processPendingDeltas(newIndexes, newOffsets, pendingKeys)
 
 	// Build and update the flatbuffer
 	sn.buildAndUpdateFlatBuffer(newIndexes, newOffsets)
@@ -216,7 +216,7 @@ func (sn *FlatNode[K, VT, V, VList]) processExistingChildren(
 	newOffsets []flatbuffers.UOffsetT,
 	childrenLen int,
 	pendingKeys map[K]int,
-) {
+) (map[K]int, []flatbuffers.UOffsetT) {
 	// Create a reusable object for VT rather than creating one per iteration
 	var vt VT
 	var vObj V = sn.conf.NewV()
@@ -242,13 +242,14 @@ func (sn *FlatNode[K, VT, V, VList]) processExistingChildren(
 		newIndexes[keys[sn.level]] = len(newOffsets)
 		newOffsets = append(newOffsets, vt.Pack(sn.Builder))
 	}
+	return newIndexes, newOffsets
 }
 
 func (sn *FlatNode[K, VT, V, VList]) processPendingDeltas(
 	newIndexes map[K]int,
 	newOffsets []flatbuffers.UOffsetT,
 	pendingKeys map[K]int,
-) {
+) (map[K]int, []flatbuffers.UOffsetT) {
 	deleteFuncSet := sn.conf.CheckVForDelete != nil
 	var vt VT
 	vtInitialized := false
@@ -269,6 +270,7 @@ func (sn *FlatNode[K, VT, V, VList]) processPendingDeltas(
 		newIndexes[delta.Keys[sn.level]] = len(newOffsets)
 		newOffsets = append(newOffsets, vt.Pack(sn.Builder))
 	}
+	return newIndexes, newOffsets
 }
 
 func (sn *FlatNode[K, VT, V, VList]) buildAndUpdateFlatBuffer(
