@@ -143,8 +143,8 @@ func (sn *FlatNode[K, VT, V, VList]) updateLeafNode() {
 		if floatSize > 1.5 { // Crash if we go over 2GB
 			logLevel = WarnLevel
 		}
-		sn.logf(logLevel, "Finished bytes size: %.2f GB, level: %d, element count: %d, keys: %v, time taken: %s\n",
-			floatSize, sn.level, elemSize, keys[:sn.level], time.Since(startTime))
+		sn.logf(logLevel, "%s Finished bytes size: %.2f GB, level: %d, element count: %d, keys: %v, time taken: %s\n",
+			sn.conf.Name, floatSize, sn.level, elemSize, keys[:sn.level], time.Since(startTime))
 	}
 }
 

@@ -28,6 +28,7 @@ type DeltaItem[K comparable] struct {
 // (Note: for enums we treat them as int8.)
 type FlatConfig[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] struct {
 	// Public fields
+	Name            string
 	NewV            func() V
 	NewVList        func() VList
 	GetKeysFromV    func(v V) []K
