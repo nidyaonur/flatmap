@@ -186,10 +186,10 @@ func (sn *FlatNode[K, VT, V, VList]) processLeafData(pendingKeys map[K]int, chil
 	newOffsets := make([]flatbuffers.UOffsetT, 0, totalItems)
 
 	// Process existing children first
-	sn.processExistingChildren(newIndexes, &newOffsets, childrenLen, pendingKeys)
+	sn.processExistingChildren(newIndexes, newOffsets, childrenLen, pendingKeys)
 
 	// Then process pending deltas
-	sn.processPendingDeltas(newIndexes, &newOffsets, pendingKeys)
+	sn.processPendingDeltas(newIndexes, newOffsets, pendingKeys)
 
 	// Build and update the flatbuffer
 	sn.buildAndUpdateFlatBuffer(newIndexes, newOffsets)
@@ -197,7 +197,7 @@ func (sn *FlatNode[K, VT, V, VList]) processLeafData(pendingKeys map[K]int, chil
 
 func (sn *FlatNode[K, VT, V, VList]) processExistingChildren(
 	newIndexes map[K]int,
-	newOffsets *[]flatbuffers.UOffsetT,
+	newOffsets []flatbuffers.UOffsetT,
 	childrenLen int,
 	pendingKeys map[K]int,
 ) {
@@ -218,23 +218,24 @@ func (sn *FlatNode[K, VT, V, VList]) processExistingChildren(
 			continue
 		}
 
-		if len(*newOffsets) == 0 {
+		if len(newOffsets) == 0 {
 			vt = vObj.UnPack()
 		} else {
 			vObj.UnPackTo(vt)
 		}
-		newIndexes[keys[sn.level]] = len(*newOffsets)
-		*newOffsets = append(*newOffsets, vt.Pack(sn.Builder))
+		newIndexes[keys[sn.level]] = len(newOffsets)
+		newOffsets = append(newOffsets, vt.Pack(sn.Builder))
 	}
 }
 
 func (sn *FlatNode[K, VT, V, VList]) processPendingDeltas(
 	newIndexes map[K]int,
-	newOffsets *[]flatbuffers.UOffsetT,
+	newOffsets []flatbuffers.UOffsetT,
 	pendingKeys map[K]int,
 ) {
 	deleteFuncSet := sn.conf.CheckVForDelete != nil
 	var vt VT
+	vtInitialized := false
 	var vObj V = sn.conf.NewV()
 
 	for _, i := range pendingKeys {
@@ -243,13 +244,14 @@ func (sn *FlatNode[K, VT, V, VList]) processPendingDeltas(
 		if deleteFuncSet && sn.conf.CheckVForDelete(vObj) {
 			continue
 		}
-		if len(*newOffsets) == 0 {
+		if !vtInitialized {
 			vt = vObj.UnPack()
+			vtInitialized = true
 		} else {
 			vObj.UnPackTo(vt)
 		}
-		newIndexes[delta.Keys[sn.level]] = len(*newOffsets)
-		*newOffsets = append(*newOffsets, vt.Pack(sn.Builder))
+		newIndexes[delta.Keys[sn.level]] = len(newOffsets)
+		newOffsets = append(newOffsets, vt.Pack(sn.Builder))
 	}
 }
 
