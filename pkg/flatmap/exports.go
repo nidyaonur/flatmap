@@ -18,15 +18,16 @@ func (sn *FlatNode[K, VT, V, VList]) Get(keys []K, v V) bool {
 		}
 		return child.Get(keys, v)
 	}
+	view := *sn.viewPtr // never nil
 
-	index, ok := sn.indexes[keys[sn.level]]
+	index, ok := view.indexes[keys[sn.level]]
 	if !ok {
 		return false
 	}
 	if index < 0 {
 		return false
 	}
-	if !sn.Vlist.Children(v, int(index)) {
+	if !view.Vlist.Children(v, int(index)) {
 		return false
 	}
 
@@ -49,7 +50,7 @@ func (sn *FlatNode[K, VT, V, VList]) GetBatch(keys []K) (vList VList, found bool
 		}
 		return child.GetBatch(keys)
 	}
-	return sn.Vlist, true
+	return sn.viewPtr.Vlist, true
 }
 
 func (sn *FlatNode[K, VT, V, VList]) GetSnapshot(keys []K, deepCopy bool) *ShardSnapshot[K] {
@@ -64,12 +65,13 @@ func (sn *FlatNode[K, VT, V, VList]) GetSnapshot(keys []K, deepCopy bool) *Shard
 	}
 	sn.rwMutex.RLock()
 	defer sn.rwMutex.RUnlock()
+	view := *sn.viewPtr // never nil
 	// check if shard is not empty
-	if len(sn.indexes) == 0 {
+	if len(view.indexes) == 0 {
 		return nil
 	}
-	keyList := make([]K, 0, len(sn.indexes))
-	for k := range sn.indexes {
+	keyList := make([]K, 0, len(view.indexes))
+	for k := range view.indexes {
 		keyList = append(keyList, k)
 	}
 	if !deepCopy {
@@ -129,7 +131,7 @@ func (sn *FlatNode[K, VT, V, VList]) Delete(keys []K) {
 		return
 	}
 	if sn.nodeType == NodeLeaf {
-		if _, ok := sn.indexes[keys[sn.level]]; !ok {
+		if _, ok := sn.viewPtr.indexes[keys[sn.level]]; !ok {
 			return
 		}
 		sn.rwMutex.Lock()

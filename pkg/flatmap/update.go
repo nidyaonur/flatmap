@@ -126,17 +126,17 @@ func (sn *FlatNode[K, VT, V, VList]) updateLeafNode() {
 	if sn.Builder == nil {
 		sn.initializeBuffers(pendingKeys)
 	} else {
-		childrenLen = sn.Vlist.ChildrenLength()
+		childrenLen = sn.viewPtr.Vlist.ChildrenLength()
 	}
 
 	// Process and update the data
 	sn.processLeafData(pendingKeys, childrenLen)
 
 	// If the finished buffer is %75 or more full(1.5GB), indicate that
-	elemSize := sn.Vlist.ChildrenLength()
+	elemSize := sn.viewPtr.Vlist.ChildrenLength()
 	if elemSize > 0 { // 1.5GB
 		firstElem := sn.conf.NewV()
-		sn.Vlist.Children(firstElem, 0)
+		sn.viewPtr.Vlist.Children(firstElem, 0)
 		keys := sn.conf.GetKeysFromV(firstElem)
 		floatSize := float64(len(sn.ReadBuffer)) / (1024 * 1024 * 1024)
 		logLevel := InfoLevel
@@ -150,12 +150,12 @@ func (sn *FlatNode[K, VT, V, VList]) updateLeafNode() {
 
 func (sn *FlatNode[K, VT, V, VList]) initializeLeafFromSnapshot() {
 	vList := sn.GetRootAsVList(sn.shardSnapshot.Buffer)
-	sn.Vlist = vList
+	sn.viewPtr.Vlist = vList
 	sn.shardSnapshot = nil
 	sn.pendingDelta = make([]DeltaItem[K], 0, 16) // Provide initial capacity
 	sn.deleted = make(map[K]struct{})
 	for i, k := range sn.shardSnapshot.Keys {
-		sn.indexes[k] = i
+		sn.viewPtr.indexes[k] = i
 	}
 	sn.pendingKeys = make(map[K]struct{}, len(sn.shardSnapshot.Keys))
 	sn.ReadBuffer = sn.shardSnapshot.Buffer
@@ -220,9 +220,10 @@ func (sn *FlatNode[K, VT, V, VList]) processExistingChildren(
 	// Create a reusable object for VT rather than creating one per iteration
 	var vt VT
 	var vObj V = sn.conf.NewV()
+	view := *sn.viewPtr // never nil
 
 	for i := range childrenLen {
-		created := sn.Vlist.Children(vObj, i)
+		created := view.Vlist.Children(vObj, i)
 		if !created {
 			continue
 		}
@@ -302,8 +303,12 @@ func (sn *FlatNode[K, VT, V, VList]) buildAndUpdateFlatBuffer(
 	sn.WriteBuffer = sn.BackupBuffer
 	sn.BackupBuffer = oldRead
 
-	sn.indexes = newIndexes
-	sn.Vlist = sn.GetRootAsVList(sn.ReadBuffer)
+	newView := &View[K, VT, V, VList]{
+		indexes: newIndexes,
+		Vlist:   sn.GetRootAsVList(sn.ReadBuffer),
+	}
+	// Update the view pointer
+	sn.viewPtr = newView
 	// Clear without reallocation
 	sn.pendingDelta = sn.pendingDelta[:0]
 }

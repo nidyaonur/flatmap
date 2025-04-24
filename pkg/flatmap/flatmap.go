@@ -13,6 +13,11 @@ const (
 	SnapshotModeProducer                     // Producer mode: means it will not maintain snapshots on update and will not produce snapshots
 )
 
+type View[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] struct {
+	indexes map[K]int
+	Vlist   VList // Reference to decoded list for faster access
+}
+
 // FlatNode represents a node in the sharded map/tree structure.
 type FlatNode[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] struct {
 	// Whether this node is a leaf or an internal node
@@ -26,13 +31,12 @@ type FlatNode[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]] stru
 
 	// Triple buffer containing read/write/backup buffers
 	ReadBuffer   []byte // Stores current data for reading
-	Vlist        VList  // Reference to decoded list for faster access
 	WriteBuffer  []byte // Buffer for building new content
 	BackupBuffer []byte // Used for rotation to minimize allocations
 	Builder      *flatbuffers.Builder
 
 	// Metadata for reads, e.g. storing offsets/sizes of items
-	indexes map[K]int
+	viewPtr *View[K, VT, V, VList]
 
 	// Use pointer for slices that may be empty much of the time
 	pendingDelta []DeltaItem[K]
@@ -67,7 +71,9 @@ func NewFlatNode[K comparable, VT VTypeT, V VType[VT], VList VListType[VT, V]](
 		// Initialize the builder with a default size
 
 		// Allocate maps lazily when they're needed
-		indexes: make(map[K]int),
+		viewPtr: &View[K, VT, V, VList]{
+			indexes: make(map[K]int, 16), // Provide initial capacity
+		},
 	}
 	if conf.Logger == nil {
 		conf.Logger = &noLogger{}
